@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.masarefy.app",
+        "sha256_cert_fingerprints": ["68:0E:7D:65:07:58:5D:7A:EA:E2:62:8D:E0:75:41:05:C6:B1:F3:FD:05:2A:A9:E7:D0:1C:FA:EF:DE:0C:98:A2"]
+      }
+    }]
