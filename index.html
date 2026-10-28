@@ -76,6 +76,7 @@ input,select{width:100%;padding:12px;border:1px solid var(--line);border-radius:
 .a4 ul{margin:0;padding:0 16px 0 0}.a4 li{margin:1px 0}
 .a4 .ft{padding:8px 18px 0;color:#6B7A90;font-size:9.5px;display:flex;justify-content:space-between}
 @media print{header,nav,.noprint{display:none!important}body{padding:0!important;background:#fff!important}main{padding:0!important}#rpwrap{height:auto!important;width:auto!important}#rpwrap .a4{transform:none!important;zoom:var(--pz,1)}}
+header.stk{position:sticky;top:0;z-index:20;padding:12px 18px 14px;box-shadow:0 4px 14px rgba(15,27,45,.25)}header.stk small{font-size:12px}header.stk .big{font-size:30px;margin:0;line-height:1.25}header.stk .sub{font-size:12.5px;gap:14px;margin-top:2px}
 </style>
 </head>
 <body>
@@ -158,9 +159,9 @@ function render(){
 
 function home(c){
   const lateDue=c.due>0&&c.day>27;
-  return `<header><small>المتاح للصرف بعد الفيزا المستحقة والالتزامات</small>
-   <div class="big ${c.free<0?'out':''}" style="${c.free<0?'color:#ff9d80':''}">${f(c.free)} ج</div>
-   <div class="sub"><span>إيراد الشهر: ${f(c.inc)}</span><span>مصروف الشهر: ${f(c.exp)}</span><span onclick="openRp()" style="text-decoration:underline;cursor:pointer">📊 تقرير الشهر</span></div></header>
+  return `<header class="stk"><small>موقفي الصافي <span style="opacity:.8">(كاش + بنك − كل الفيزا − الالتزامات)</span></small>
+   <div class="big" style="${c.net<0?'color:#ff9d80':''}">${f(c.net)} ج</div>
+   <div class="sub"><span>المتاح للصرف: <b>${f(c.free)}</b></span><span>إيراد: ${f(c.inc)}</span><span>مصروف: ${f(c.exp)}</span><span onclick="openRp()" style="text-decoration:underline;cursor:pointer">📊 التقرير</span></div></header>
   <main>
    ${todayCard(c)}${meterCard(c)}<div class="card"><h3>معايا فلوس فين؟</h3>
     <div class="row"><span class="l">كاش (إجمالي)</span><span class="v">${f(c.cash)}</span></div>
@@ -173,7 +174,6 @@ function home(c){
    <div class="card"><h3>التزامات الشهر اللي لسه</h3>
     ${(c.obs.filter(o=>!o.paid).map(o=>`<div class="row"><span class="l">${esc(o.name)}<small class="${o.late?'out':''}">يوم ${o.day}${o.late?' • عدّى ميعاده':''}</small></span><span class="v warn">${f(o.total)}</span></div>`).join('')+wkRows(c))||'<div class="empty">كله اتدفع ✔</div>'}
     <div class="row"><span class="l"><b>الإجمالي</b></span><span class="v">${f(c.unpaid)}</span></div></div>
-   <div class="card"><div class="row"><span class="l">صافي موقفي (بعد كل الفيزا)<small>كاش + بنك − كل الفيزا − الالتزامات</small></span><span class="v ${c.net<0?'out':'in'}">${f(c.net)}</span></div></div>
   </main>`;
 }
 
