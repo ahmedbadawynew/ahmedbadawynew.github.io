@@ -889,9 +889,9 @@ function forgotInfo(){
 }
 function openChangePw(){
   sheet(`<h3>🔑 تغيير الباسورد</h3>
-   <label>الباسورد الحالي</label><input id="p_old" type="password" autocomplete="current-password">
-   <label>الباسورد الجديد (6 حروف+)</label><input id="p_new" type="password" autocomplete="new-password">
-   <label>أكد الباسورد الجديد</label><input id="p_new2" type="password" autocomplete="new-password">
+   <label>الباسورد الحالي</label><input id="p_old" type="password" autocomplete="current-password" ${ent('p_new')}>
+   <label>الباسورد الجديد (6 حروف+)</label><input id="p_new" type="password" autocomplete="new-password" ${ent('p_new2')}>
+   <label>أكد الباسورد الجديد</label><input id="p_new2" type="password" autocomplete="new-password" ${ent(null,'doChangePw()')}>
    <small style="color:var(--mut);display:block;margin-top:8px">بعد التغيير هيتقفل التطبيق على أي جهاز تاني متسجل بالباسورد القديم.</small>
    <button class="btn" onclick="doChangePw()">تغيير</button>`);
 }
@@ -1220,20 +1220,21 @@ function boot(){
     lockScreen('login');
   }).withFailureHandler(e=>{$('#app').innerHTML='<div class="empty">'+esc(e.message)+'</div>'}).status();
 }
+const ent=(next,fn)=>`enterkeyhint="${next?'next':'go'}" onkeydown="if(event.key==='Enter'){event.preventDefault();${next?`$('#${next}').focus()`:fn}}"`;
 function lockScreen(mode,tryFp){
   closeSheet();TOKEN=null;$('#app').innerHTML='';$('#nav').style.display='none';
   const L=$('#lock'),fp=ls.get('fp')&&ls.get('dt');
   L.style.display='flex';
   L.innerHTML=mode==='setup'?`<div class="lk"><h2>إنشاء الحماية</h2><small style="color:var(--mut)">أول مرة بس. اختار يوزر وباسورد.</small>
-   <label>اليوزر (حروف أو أرقام من غير مسافات)</label><input id="l_u" autocomplete="username">
-   <label>الباسورد (6 حروف على الأقل)</label><input id="l_p" type="password" autocomplete="new-password">
-   <label>أكد الباسورد</label><input id="l_p2" type="password">
+   <label>اليوزر (حروف أو أرقام من غير مسافات)</label><input id="l_u" autocomplete="username" ${ent('l_p')}>
+   <label>الباسورد (6 حروف على الأقل)</label><input id="l_p" type="password" autocomplete="new-password" ${ent('l_p2')}>
+   <label>أكد الباسورد</label><input id="l_p2" type="password" ${ent(null,'doSetup()')}>
    <label class="chk"><input id="l_r" type="checkbox" checked> افتكرني على الموبايل ده</label>
    <button class="btn" onclick="doSetup()">إنشاء ودخول</button></div>`
   :`<div class="lk"><h2>مصاريفي 🔒</h2>
    ${fp?'<button class="btn" style="background:var(--ink);margin-top:10px" onclick="fpUnlock()">👆 فتح بالبصمة</button>':''}
-   <label>اليوزر</label><input id="l_u" autocomplete="username">
-   <label>الباسورد</label><input id="l_p" type="password" autocomplete="current-password">
+   <label>اليوزر</label><input id="l_u" autocomplete="username" ${ent('l_p')}>
+   <label>الباسورد</label><input id="l_p" type="password" autocomplete="current-password" ${ent(null,'doLogin()')}>
    <label class="chk"><input id="l_r" type="checkbox" ${ls.get('dt')?'checked':''}> افتكرني على الموبايل ده</label>
    <button class="btn" ${fp?'style="background:#fff;color:var(--ink);border:1px solid var(--line)"':''} onclick="doLogin()">دخول</button><div style="text-align:center;margin-top:12px"><a onclick="forgotInfo()" style="color:var(--mut);font-size:13px;text-decoration:underline;cursor:pointer">نسيت الباسورد؟</a></div></div>`;
   if(mode==='login'&&tryFp&&fp)fpUnlock();
@@ -1285,7 +1286,7 @@ function switchSheet(){askConfirm('ربط شيت تاني؟','هتفصل الش�
 function askApi(){
   $('#nav').style.display='none';$('#lock').style.display='flex';
   $('#lock').innerHTML=`<div class="lk"><h2>ربط الشيت</h2><small style="color:var(--mut)">الصق لينك الـ Web app (بيخلص بـ /exec). بيتحفظ على الموبايل مرة واحدة.</small>
-   <label>لينك Apps Script</label><input id="l_api" dir="ltr" placeholder="https://script.google.com/macros/s/.../exec">
+   <label>لينك Apps Script</label><input id="l_api" dir="ltr" ${ent(null,'saveApi()')} placeholder="https://script.google.com/macros/s/.../exec">
    <button class="btn" onclick="saveApi()">حفظ</button>
    ${TEMPLATE_URL?`<a href="${TEMPLATE_URL}" target="_blank" class="btn" style="display:block;text-align:center;text-decoration:none;background:var(--ink)">📄 معنديش شيت؟ اعمل نسخة جاهزة</a><small style="color:var(--mut);display:block;margin-top:8px">بعد النسخ: Extensions ← Apps Script ← Deploy ← New deployment ← Web app (Execute as: Me • Access: Anyone) وانسخ اللينك.</small>`:''}</div>`;
 }
