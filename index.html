@@ -309,10 +309,10 @@ let OB={},RET=null,CAL={id:'',mo:''};
 /* ---------- الالتزامات: إضافة / تعديل ---------- */
 function openOb(id){
   const o=D.ob.find(x=>x.id===id)||{id:uid(),kind:'ثابت',times:1,day:1,startYm:todayStr().slice(0,7),endYm:'',amount:'',name:'',weekdays:''};
-  OB={...o,isNew:!id,mode:o.weekdays?'w':'m',pay:o.pkg>0?'p':'s',pk:pkgList(o).map(k=>({n:k.n,p:k.p})),wd:String(o.weekdays||'').split(',').filter(x=>x!=='').map(Number)};
+  OB={...o,isNew:!id,startDate:o.startDate||(o.weekdays?(id&&o.startYm?o.startYm+'-01':todayStr()):''),mode:o.weekdays?'w':'m',pay:o.pkg>0?'p':'s',pk:pkgList(o).map(k=>({n:k.n,p:k.p})),wd:String(o.weekdays||'').split(',').filter(x=>x!=='').map(Number)};
   obForm();
 }
-function obKeep(){(OB.pk||[]).forEach((k,i)=>{const a=$('#pk_n'+i),b=$('#pk_p'+i);if(a)k.n=a.value;if(b)k.p=b.value});[['name','o_name'],['kind','o_kind'],['pkg','o_pkg'],['pkgPrice','o_pp'],['amount','o_amount'],['times','o_times'],['day','o_day'],['startYm','o_start'],['endYm','o_end']].forEach(([k,i])=>{const e=$('#'+i);if(e)OB[k]=e.value})}
+function obKeep(){(OB.pk||[]).forEach((k,i)=>{const a=$('#pk_n'+i),b=$('#pk_p'+i);if(a)k.n=a.value;if(b)k.p=b.value});[['name','o_name'],['kind','o_kind'],['startDate','o_sd'],['pkg','o_pkg'],['pkgPrice','o_pp'],['amount','o_amount'],['times','o_times'],['day','o_day'],['startYm','o_start'],['endYm','o_end']].forEach(([k,i])=>{const e=$('#'+i);if(e)OB[k]=e.value})}
 function obPay(m){obKeep();OB.pay=m;if(m==='p'&&!(OB.pk||[]).length)OB.pk=[{n:'',p:''}];obForm()}
 function pkAdd(){obKeep();OB.pk.push({n:'',p:''});obForm()}
 function pkRm(i){obKeep();OB.pk.splice(i,1);obForm()}
@@ -334,7 +334,7 @@ function obForm(){
    :`<label>المبلغ</label><input id="o_amount" type="number" step="any" inputmode="decimal" value="${OB.amount}">
      <label>عدد المرات في الشهر</label><input id="o_times" type="number" value="${OB.isNew?'':(OB.times||1)}" placeholder="1">
      <label>يوم الاستحقاق من الشهر</label><input id="o_day" type="number" min="1" max="31" value="${OB.isNew?'':OB.day}" placeholder="1 - 31">`}
-   <label>يبدأ من شهر</label><input id="o_start" type="month" value="${OB.startYm||''}">
+   ${w?`<label>تاريخ البداية (أول حصة/مرة بتتحسب من اليوم ده)</label><input id="o_sd" type="date" value="${OB.startDate||''}">`:`<label>يبدأ من شهر</label><input id="o_start" type="month" value="${OB.startYm||''}">`}
    <label>آخر شهر (سيبه فاضي لو مستمر)</label><input id="o_end" type="month" value="${OB.endYm||''}">
    <button class="btn" onclick="saveOb()">حفظ</button>${OB.isNew?'':`<button class="btn d" onclick="delOb('${OB.id}')">حذف</button>`}`);
 }
@@ -344,13 +344,15 @@ function saveOb(){
   const a=pk?(ks.length?Math.round(ks[0].p/ks[0].n*10000)/10000:NaN):parseFloat(OB.amount);
   if(!OB.name||!(a>0))return toast(pk?'اكتب الاسم وباقة واحدة على الأقل (عدد الحصص والسعر)':'اكتب الاسم والمبلغ');
   if(w&&!OB.wd.length)return toast('اختار يوم واحد على الأقل');
-  call('upsert','Obligations',{id:OB.id,name:OB.name,amount:a,times:w?1:(parseInt(OB.times)||1),day:w?1:(parseInt(OB.day)||1),kind:OB.kind,startYm:OB.startYm||'',endYm:OB.endYm||'',active:'yes',weekdays:w?OB.wd.join(','):'',pkg:pk?ks[0].n:'',pkgPrice:pk?ks[0].p:'',pkgs:pk?ks.map(k=>k.n+':'+k.p).join(';'):''});
+  if(w&&!OB.startDate)return toast('اختار تاريخ البداية');
+  const sd=w?OB.startDate:'';
+  call('upsert','Obligations',{id:OB.id,name:OB.name,amount:a,times:w?1:(parseInt(OB.times)||1),day:w?1:(parseInt(OB.day)||1),kind:OB.kind,startDate:sd,startYm:sd?sd.slice(0,7):(OB.startYm||''),endYm:OB.endYm||'',active:'yes',weekdays:w?OB.wd.join(','):'',pkg:pk?ks[0].n:'',pkgPrice:pk?ks[0].p:'',pkgs:pk?ks.map(k=>k.n+':'+k.p).join(';'):''});
 }
 
 /* ---------- الالتزامات الأسبوعية: الأيام (Occurrences) ---------- */
 function sched(ob,d){
   const wd=String(ob.weekdays||'').split(',').filter(x=>x!=='').map(Number);
-  return wd.includes(wdOf(d))&&(!ob.startYm||ym(d)>=ob.startYm)&&(!ob.endYm||ym(d)<=ob.endYm);
+  return wd.includes(wdOf(d))&&(!ob.startYm||ym(d)>=ob.startYm)&&(!ob.startDate||d>=ob.startDate)&&(!ob.endYm||ym(d)<=ob.endYm);
 }
 function itemFor(ob,d){
   const o=D.occ.find(x=>x.id===ob.id+'_'+d),s=sched(ob,d);
