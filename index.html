@@ -322,7 +322,20 @@ function saveTx(){
 }
 function openDel(id){const t=D.tx.find(x=>x.id===id);sheet(`<h3>${TL[t.type]} — ${f(t.amount)} ج</h3><div style="color:var(--mut)">${t.date} • ${esc(t.category||'')} ${esc(t.note||'')}</div><button class="btn d" onclick="delTx('${id}')">حذف الحركة</button>`)}
 
-function payOb(id){const o=D.ob.find(x=>x.id===id);openTx({type:'expense',amount:o.amount*(o.times||1),category:'فواتير',note:o.name,obId:o.id,ym:calc().cm,account:(D.acc.find(a=>a.kind==='bank')||{}).id})}
+function payOb(id){if(RO())return openObPay(id);const o=D.ob.find(x=>x.id===id);openTx({type:'expense',amount:o.amount*(o.times||1),category:'فواتير',note:o.name,obId:o.id,ym:calc().cm,account:(D.acc.find(a=>a.kind==='bank')||{}).id})}
+function openObPay(id){
+  const o=D.ob.find(x=>x.id===id);if(!o)return;
+  sheet(`<h3>دفع ${esc(o.name)}</h3>
+   <label>المبلغ</label><input id="op_amt" type="number" step="any" inputmode="decimal" value="${o.amount*(o.times||1)}" oninput="accHint('op_acc','op_amt','op_hint')">
+   <label>الدفع من</label><select id="op_acc" onchange="accHint('op_acc','op_amt','op_hint')">${opts(askAccOpts(),'')}</select>
+   <div id="op_hint" style="font-size:13px;color:var(--mut);margin-top:6px"></div>
+   <button class="btn" onclick="payObLite('${id}')">✔ اتدفع</button>`);
+}
+function payObLite(id){
+  const o=D.ob.find(x=>x.id===id),amt=parseFloat(val('op_amt')),acc=val('op_acc');
+  if(!(amt>0))return toast('اكتب المبلغ');if(!acc)return toast('اختار الحساب اللي هتدفع منه');
+  RET=null;chain([['upsert','Tx',{id:uid(),date:todayStr(),type:'expense',amount:amt,account:acc,to:'',category:catOf(o),via:'',note:o.name,obId:o.id,ym:calc().cm}]]);
+}
 const WD=[[6,'سبت'],[0,'أحد'],[1,'إثنين'],[2,'تلات'],[3,'أربع'],[4,'خميس'],[5,'جمعة']];
 const MN=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 const DN=['الأحد','الإثنين','التلات','الأربع','الخميس','الجمعة','السبت'];
@@ -456,14 +469,23 @@ function drawCal(){
    <div class="legend">إطار غامق = مستحق • أحمر = فات ميعاده • أخضر = اتدفع • رمادي = ملغي • ↪ = اتنقل • خط متقطع = يوم إضافي<br>دوس على أي يوم عشان تدفع أو تلغي أو تنقل أو تعدّل المبلغ، أو تضيف يوم مش في الجدول.</div>
    <div class="row"><span class="l">اتدفع</span><span class="v in">${pd.length} مرة • ${f(sm(pd))}</span></div>
    <div class="row"><span class="l">باقي</span><span class="v warn">${du.length} مرة • ${f(sm(du))}</span></div>
-   <button class="btn" style="background:var(--ink)" onclick="openOb('${ob.id}')">✏ تعديل الأيام / المبلغ الأساسي</button>`);
+   ${RO()?'':`<button class="btn" style="background:var(--ink)" onclick="openOb('${ob.id}')">✏ تعديل الأيام / المبلغ الأساسي</button>`}`);
 }
 
 /* ---------- يوم واحد: دفع / إلغاء / نقل / تعديل مبلغ ---------- */
+const RO=()=>D.me&&D.me.role==='user';
+function askAccOpts(){const c=calc(),L=D.acc.map(a=>[a.id,a.name+' • '+f(c.bal[a.id]||0)+' ج']);return D.acc.length>1?[['','— اختار الحساب اللي هتدفع منه —'],...L]:L}
+function accHint(sa,sm,so){const id=val(sa),el=$('#'+so);if(!el)return;if(!id){el.innerHTML='';return}const b=calc().bal[id]||0,a=parseFloat(val(sm))||0;el.innerHTML='الرصيد المتاح: <b>'+f(b)+'</b>'+(a>b?' <span class="out">• أقل من المبلغ</span>':'')}
+const canPay=id=>!!(D.me&&D.me.role==='user'&&(D.me.obPay||[]).includes(id));
 function openOcc(key,fromCal){
   RET=fromCal?drawCal:null;
   const it=getItem(key),ob=it.ob,accs=D.acc.map(a=>[a.id,a.name]),pk=ob.pkg>0;
   const st=it.state==='paid'?'<span class="tag in">اتدفع</span>':it.state==='skip'?'<span class="tag">ملغي</span>':it.moved?'<span class="tag">منقول</span>':'';
+  if(RO())return sheet(`<h3>${esc(ob.name)} ${st}</h3><div style="color:var(--mut);font-size:13px">${fdl(it.orig)}${it.moved?' ← اتنقل لـ '+fdl(it.date):''}${it.extra?' • يوم إضافي':''}</div>
+   ${it.virtual?'<div class="empty">مفيش حصة متحددة في اليوم ده</div>':pk?blockInfo(ob,it):`<div class="row"><span class="l">المبلغ</span><span class="v">${f(it.amount)}</span></div>`}
+   ${it.state==='paid'&&pk?`<div class="row"><span class="l">اتدفع</span><span class="v in">✔</span></div>`:''}
+   ${canPay(ob.id)&&!it.virtual&&it.state!=='skip'?(it.state==='paid'?`<button class="btn d" onclick="occUnpay('${key}')">إلغاء الدفع</button>`:pk?`<button class="btn" onclick="openPkg('${ob.id}')">📚 ادفع الحصص</button>`:`<label>المبلغ</label><input id="c_amt" type="number" step="any" inputmode="decimal" value="${it.amount}" oninput="accHint('c_acc','c_amt','c_hint')"><label>الدفع من</label><select id="c_acc" onchange="accHint('c_acc','c_amt','c_hint')">${opts(askAccOpts(),'')}</select><div id="c_hint" style="font-size:13px;color:var(--mut);margin-top:6px"></div><button class="btn" onclick="payOcc('${key}')">✔ اتدفع</button>`):''}
+   ${fromCal?'<button class="btn" style="background:var(--ink)" onclick="drawCal()">رجوع للتقويم</button>':''}`);
   sheet(`<h3>${esc(ob.name)} ${st}</h3><div style="color:var(--mut);font-size:13px">${fdl(it.orig)}${it.moved?' ← اتنقل لـ '+fdl(it.date):''}${it.extra?' • يوم إضافي':''}</div>
   ${it.state==='skip'?`<button class="btn" onclick="occRestore('${key}')">↩ رجّع اليوم ده</button>`
   :it.state==='paid'?`<div class="row"><span class="l">المبلغ المدفوع</span><span class="v">${f(it.amount)}</span></div><button class="btn d" onclick="occUnpay('${key}')">إلغاء الدفع (يمسح المصروف)</button>`
@@ -505,7 +527,7 @@ function occAmt(key){
 function occUnpay(key){
   const o=D.occ.find(x=>x.id===key),it=getItem(key),grp=D.occ.filter(x=>x.txId&&x.txId===o.txId),tx=D.tx.find(t=>t.id===o.txId),n=grp.length;
   askConfirm('إلغاء الدفع؟',n>1?`الدفعة دي غطّت <b>${n} حصة</b> بمبلغ <b>${f(tx?tx.amount:it.amount)} ج</b>. هيتمسح المصروف وترجع الفلوس للحساب، والحصص ترجع مستحقة.`:`هيتمسح مصروف <b>${f(it.amount)} ج</b> وترجع الفلوس للحساب، واليوم يرجع مستحق.`,'نعم، ألغي الدفع',
-   ()=>chain(n>1?[['remove','Tx',o.txId],['removeMany','Occ',grp.map(x=>x.id)]]:[['remove','Tx',o.txId],['remove','Occ',key]]));
+   ()=>chain(n>1?[['removeMany','Occ',grp.map(x=>x.id)],['remove','Tx',o.txId]]:[['remove','Occ',key],['remove','Tx',o.txId]]));
 }
 
 /* ---------- تأكيد الحذف + تراجع ---------- */
@@ -909,14 +931,14 @@ function openSec(){
   sheet(`<h3>🔐 الأمان والمستخدمين</h3>
    <button class="btn" style="margin-top:6px;background:var(--ink)" onclick="openChangePw()">🔑 تغيير الباسورد بتاعي</button>
    <h3 style="margin:18px 0 4px">المستخدمين</h3>
-   ${us.map(u=>`<div class="row" onclick="openUser('${esc(u.key)}')"><span class="l">${esc(u.name)}${u.off?' <span class="tag">موقوف</span>':''}<small>${u.accounts.map(id=>esc(accName(id))).join('، ')||'من غير حسابات'} • ${[u.spend?'يصرف':'',u.deposit?'يضيف إيراد':''].filter(Boolean).join(' + ')||'عرض بس'}</small></span><span class="v">‹</span></div>`).join('')||'<div class="empty">لسه مفيش مستخدمين تانيين</div>'}
+   ${us.map(u=>`<div class="row" onclick="openUser('${esc(u.key)}')"><span class="l">${esc(u.name)}${u.off?' <span class="tag">موقوف</span>':''}<small>${u.accounts.map(id=>esc(accName(id))).join('، ')||'من غير حسابات'}${(u.obs||[]).length?' • '+(u.obs||[]).length+' التزام'+((u.obPay||[]).length?' ('+u.obPay.length+' يدفعهم)':''):''} • ${[u.spend?'يصرف':'',u.deposit?'يضيف إيراد':''].filter(Boolean).join(' + ')||'عرض بس'}</small></span><span class="v">‹</span></div>`).join('')||'<div class="empty">لسه مفيش مستخدمين تانيين</div>'}
    <button class="btn" onclick="openUser()">+ مستخدم جديد</button>
    <small style="color:var(--mut);display:block;margin-top:12px;line-height:1.7">المستخدم الإضافي بيشوف ويتعامل مع الحسابات اللي تحددها بس (مثلاً كاش الدرج)، ومايشوفش أي حاجة تانية. لو نسي باسورده تقدر تحط له باسورد جديد من هنا.</small>`);
 }
 let UF={};
 function openUser(key){
   const u=(D.users||[]).find(x=>x.key===key);
-  UF=u?{...u,isNew:false}:{key:'',name:'',accounts:[],spend:true,deposit:false,off:false,isNew:true};
+  UF=u?{...u,obs:u.obs||[],obPay:u.obPay||[],isNew:false}:{key:'',name:'',accounts:[],obs:[],obPay:[],spend:true,deposit:false,off:false,isNew:true};
   userForm();
 }
 function ufKeep(){
@@ -925,6 +947,8 @@ function ufKeep(){
   UF.pass=g('u_pass').value;UF.spend=g('u_sp').checked;UF.deposit=g('u_dp').checked;
   if(g('u_off'))UF.off=g('u_off').checked;
   UF.accounts=[...document.querySelectorAll('.u_ac')].filter(x=>x.checked).map(x=>x.value);
+  UF.obPay=[...document.querySelectorAll('.u_op')].filter(x=>x.checked).map(x=>x.value);
+  UF.obs=[...new Set([...[...document.querySelectorAll('.u_ob')].filter(x=>x.checked).map(x=>x.value),...UF.obPay])];
 }
 function userForm(){
   const accs=D.acc.filter(a=>a.kind!=='visa');
@@ -934,6 +958,8 @@ function userForm(){
    <label>${UF.isNew?'الباسورد (6 حروف+)':'باسورد جديد (سيبه فاضي لو مش عايز تغيّره)'}</label><input id="u_pass" type="text" autocomplete="off">
    <label>الحسابات اللي يشوفها ويتعامل معاها</label>
    ${accs.map(a=>`<label class="chk"><input class="u_ac" type="checkbox" value="${a.id}" ${UF.accounts.includes(a.id)?'checked':''}> ${esc(a.name)}</label>`).join('')||'<div class="empty">ضيف حسابات الأول</div>'}
+   <label>الالتزامات (يشوفها، ولو علّمت "يقدر يدفعه" يدفعها من حساباته)</label>
+   ${D.ob.filter(o=>o.active!=='no').map(o=>`<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><label class="chk" style="flex:1;min-width:140px"><input class="u_ob" type="checkbox" value="${o.id}" ${(UF.obs||[]).includes(o.id)||(UF.obPay||[]).includes(o.id)?'checked':''}> ${esc(o.name)}${o.weekdays?' <span class="tag">أسبوعي</span>':''}</label><label class="chk" style="font-size:13px"><input class="u_op" type="checkbox" value="${o.id}" ${(UF.obPay||[]).includes(o.id)?'checked':''}> يقدر يدفعه</label></div>`).join('')||'<div class="empty" style="padding:8px">لسه مفيش التزامات</div>'}
    <label>الصلاحيات</label>
    <label class="chk"><input id="u_sp" type="checkbox" ${UF.spend?'checked':''}> يقدر يسجّل مصروف</label>
    <label class="chk"><input id="u_dp" type="checkbox" ${UF.deposit?'checked':''}> يقدر يسجّل إيراد / إيداع</label>
@@ -946,10 +972,11 @@ function saveUserUi(){
   if(UF.isNew&&!/^[A-Za-z0-9_.\-\u0600-\u06FF]{2,30}$/.test(UF.name))return toast('الاسم حروف أو أرقام من غير مسافات (حرفين+)');
   if(UF.isNew&&(UF.pass||'').length<6)return toast('الباسورد 6 حروف على الأقل');
   if(!UF.isNew&&UF.pass&&UF.pass.length<6)return toast('الباسورد 6 حروف على الأقل');
-  if(!UF.accounts.length)return toast('اختار حساب واحد على الأقل');
+  if(!UF.accounts.length&&!UF.obs.length)return toast('اختار حساب أو التزام على الأقل');
+  if(UF.obPay.length&&!UF.accounts.length)return toast('اختار حساب يدفع منه الالتزام');
   if(!UF.spend&&!UF.deposit&&!confirm('من غير صلاحيات هيشوف الرصيد والحركات بس. تمام؟'))return;
   RET=openSec;
-  chain([['saveUser',{name:UF.name,pass:UF.pass||'',accounts:UF.accounts,spend:UF.spend,deposit:UF.deposit,off:UF.off}]]);
+  chain([['saveUser',{name:UF.name,pass:UF.pass||'',accounts:UF.accounts,obs:UF.obs,obPay:UF.obPay,spend:UF.spend,deposit:UF.deposit,off:UF.off}]]);
 }
 function delUserUi(key){
   askConfirm('حذف المستخدم؟','<b>'+esc(key)+'</b> مش هيقدر يدخل تاني. الحركات اللي سجّلها هتفضل في الحركات.','نعم، احذف',()=>{RET=openSec;chain([['deleteUser',key]])});
@@ -957,11 +984,13 @@ function delUserUi(key){
 function renderLite(c){
   $('#nav').style.display='none';
   const m=D.me,total=D.acc.reduce((s,a)=>s+(c.bal[a.id]||0),0),mine=id=>D.acc.some(a=>a.id===id);
-  const list=[...D.tx].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id)).slice(0,60);
+  const list=D.tx.filter(t=>mine(t.account)||mine(t.to)).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id)).slice(0,60);
+  const obsCard=(D.ob||[]).length?`<div class="card"><h3>🗓 الالتزامات</h3>${sessRows(c,o=>canPay(o.id))}${wkList(c)}${c.obs.map(o=>`<div class="row"><span class="l">${esc(o.name)} <span class="tag">${esc(o.kind)}</span><small>يوم ${o.day}${o.times>1?' • '+f(o.amount)+' × '+o.times:''}</small></span><span class="v ${o.paid?'in':''}">${o.paid?'اتدفع ✔':f(o.total)}${!o.paid&&canPay(o.id)?` <button class="pay" onclick="payOb('${o.id}')">دفع</button>`:''}</span></div>`).join('')}</div>`:'';
   const lbl=m.spend&&m.deposit?'تسجيل حركة':m.spend?'تسجيل مصروف':m.deposit?'تسجيل إيراد':'';
   $('#app').innerHTML=`<header><small>أهلاً ${esc(m.name)}</small><div class="big">${f(total)} ج</div><div class="sub"><span>رصيدك المتاح</span></div></header><main>
    ${lbl?`<button class="btn" style="margin:0 0 12px" onclick="openTx()">+ ${lbl}</button>`:''}${m.spend?quickCard(false):''}
    <div class="card"><h3>الحسابات</h3>${D.acc.map(a=>`<div class="row"><span class="l">${esc(a.name)}</span><span class="v">${f(c.bal[a.id]||0)}</span></div>`).join('')||'<div class="empty">مفيش حساب متاح ليك</div>'}</div>
+   ${obsCard}
    <div class="card"><h3>الحركات</h3>${list.map(t=>{const out=t.type==='expense'||((t.type==='transfer'||t.type==='visa_pay')&&mine(t.account));
      return `<div class="row" ${t.by===m.name?`onclick="openDel('${t.id}')"`:''}><span class="l">${esc(t.category||TL[t.type])}${t.sub?' › '+esc(t.sub):''}<small>${t.date} • ${esc(accName(t.account))}${t.note?' • '+esc(t.note):''}${t.by&&t.by!==m.name?' • 👤'+esc(t.by):''}</small></span><span class="v ${out?'out':'in'}">${out?'−':'+'}${f(t.amount)}</span></div>`}).join('')||'<div class="empty">مفيش حركات</div>'}</div>
    <button class="btn d" onclick="openChangePw()">🔑 تغيير الباسورد</button>
@@ -994,8 +1023,8 @@ function blockInfo(ob,it){
   const bI=Math.floor(i/N),full=(bI+1)*N<=w.length,last=w[Math.min((bI+1)*N,w.length)-1];
   return `<div class="row"><span class="l">حصة ${i%N+1} من ${N}<small>${full?'الباقة بتخلص '+fd(last.date)+' وبتتحسب في '+MN[+ym(last.date).slice(5)-1]:'الباقة دي لسه ماكملتش حصصها'} • الدفع وقت ما تحب</small></span></div>`;
 }
-function sessRows(c){
-  return (c.sess||[]).filter(s=>s.held.length>0).map(s=>{const ob=s.ob,n=s.held.length,full=Math.floor(n/ob.pkg),cur=n%ob.pkg;
+function sessRows(c,pf){
+  return (c.sess||[]).filter(s=>s.held.length>0&&(!pf||pf(s.ob))).map(s=>{const ob=s.ob,n=s.held.length,full=Math.floor(n/ob.pkg),cur=n%ob.pkg;
     return `<div class="row"><span class="l" onclick="openCal('${ob.id}')">📚 ${esc(ob.name)}<small class="${full?'out':''}">${full?full+' باقة كملت ('+full*ob.pkg+' حصة)':''}${full&&cur?' + ':''}${cur?cur+' من '+ob.pkg+' في الباقة الجاية':''}</small></span><span class="v">${full?f(full*ob.pkgPrice)+' ':''}<button class="pay" onclick="openPkg('${ob.id}')">ادفع</button></span></div>`}).join('');
 }
 function openPkg(id){
@@ -1007,8 +1036,8 @@ function openPkg(id){
    <label>عدد الحصص اللي هتدفع عنها</label>
    <div class="seg">${pl.map(k=>`<button onclick="pkSet(${k.n})">${k.n} حصة • ${f(k.p)}</button>`).join('')}${held>0&&!pl.some(k=>k.n===held)?`<button onclick="pkSet(${held})">كل المتراكم (${held})</button>`:''}</div>
    <input id="k_n" type="number" inputmode="numeric" value="${k0}" oninput="pkCalc()" style="margin-top:8px">
-   <label>المبلغ (بيتحسب لوحده وتقدر تعدّله)</label><input id="k_amt" type="number" step="any" inputmode="decimal" value="${pkgPrice(ob,k0)}" oninput="PK.manual=true">
-   <label>الدفع من</label><select id="k_acc">${opts(D.acc.map(a=>[a.id,a.name]),defAcc(ob))}</select>
+   <label>المبلغ (بيتحسب لوحده وتقدر تعدّله)</label><input id="k_amt" type="number" step="any" inputmode="decimal" value="${pkgPrice(ob,k0)}" oninput="PK.manual=true;accHint('k_acc','k_amt','k_hint')">
+   <label>الدفع من</label><select id="k_acc" onchange="accHint('k_acc','k_amt','k_hint')">${RO()?opts(askAccOpts(),''):opts(D.acc.map(a=>[a.id,a.name]),defAcc(ob))}</select><div id="k_hint" style="font-size:13px;color:var(--mut);margin-top:6px"></div>
    <div id="k_pv" style="margin-top:10px;font-size:13px;color:var(--mut);line-height:1.7"></div>
    <button class="btn" onclick="payPkg()">✔ اتدفع (نزّله مصروف)</button>`);
   pkCalc();
@@ -1019,6 +1048,7 @@ function pkCalc(){
   if(!PK.manual)$('#k_amt').value=n>0?pkgPrice(ob,n):'';
   const it=sessWin(ob).slice(0,n);
   $('#k_pv').innerHTML=n>0?(it.length<n?`<span class="out">المتاح في الجدول ${it.length} حصة بس (زوّد الأيام أو ضيف يوم إضافي من التقويم).</span>`:`هتتغطى الحصص من ${fd(it[0].date)} إلى ${fd(it[it.length-1].date)}`):'';
+  accHint('k_acc','k_amt','k_hint');
 }
 function payPkg(){
   const ob=D.ob.find(x=>x.id===PK.id),n=parseInt(val('k_n'))||0,amt=parseFloat(val('k_amt')),acc=val('k_acc');
