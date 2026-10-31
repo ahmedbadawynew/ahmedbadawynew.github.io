@@ -91,6 +91,8 @@ details.card.dt{padding:4px 14px}
 .tl button{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 8px;font:inherit;font-size:14px;line-height:1.4;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--ink)}
 .tl button span{font-size:26px}
 h3.sec{margin:16px 4px 8px;font-size:13px;color:var(--mut);font-weight:500}
+#busy{display:none;position:fixed;inset:0;z-index:200;background:rgba(15,27,45,.38);align-items:center;justify-content:center;flex-direction:column;gap:12px;color:#fff;font-size:15px;touch-action:none}
+.spin{width:38px;height:38px;border:4px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -101,13 +103,19 @@ h3.sec{margin:16px 4px 8px;font-size:13px;color:var(--mut);font-weight:500}
 <div id="lock"></div>
 <div id="cf"></div>
 <div id="undo"></div>
+<div id="busy"><div class="spin"></div><span id="busy_t">جاري التنفيذ…</span></div>
 <script>
 let API=(()=>{try{return localStorage.getItem('api')||''}catch(e){return ''}})();
+let API_TMO=45000;
 async function api(fn,args){
-  const r=await fetch(API,{method:'POST',body:JSON.stringify({fn,args}),redirect:'follow'});
-  const j=await r.json();
-  if(!j.ok)throw new Error(j.error);
-  return j.data;
+  const ac=new AbortController(),t=setTimeout(()=>ac.abort(),API_TMO);
+  try{
+    const r=await fetch(API,{method:'POST',body:JSON.stringify({fn,args}),redirect:'follow',signal:ac.signal});
+    const j=await r.json();
+    if(!j.ok)throw new Error(j.error);
+    return j.data;
+  }catch(e){if(e&&e.name==='AbortError')throw new Error('TIMEOUT');throw e}
+  finally{clearTimeout(t)}
 }
 const google={script:{run:(function make(ok,fail){return new Proxy({},{get:(_,k)=>k==='withSuccessHandler'?s=>make(s,fail):k==='withFailureHandler'?x=>make(ok,x):(...a)=>{api(k,a).then(r=>ok&&ok(r)).catch(e=>{if(fail)fail(e);else console.error(e)})}})})()}};
 </script>
@@ -128,12 +136,30 @@ let D={tx:[],acc:[],ob:[],occ:[],rd:[],bl:[],cfg:{},users:[],me:null},tab='home'
 
 let _tt=null,_bchk=null;
 function toast(m,ms){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(_tt);_tt=setTimeout(()=>t.style.display='none',ms||1800)}
-function call(fn,...a){
-  busy=true;toast('جاري الحفظ…');
-  google.script.run.withSuccessHandler(r=>{D=r;busy=false;toast('تم');closeSheet();render();if(_bchk){const k=_bchk;_bchk=null;setTimeout(()=>budgetToast(k),700)}})
-    .withFailureHandler(e=>{busy=false;if(/AUTH/.test(e.message))return lockScreen('login');toast('حصل خطأ: '+e.message)})[fn](TOKEN,...a);
+/* ---------- قفل الأزرار أثناء أي عملية (عشان ماتتكررش لو النت علّق) ---------- */
+let _bt=null,ATT={};
+const attId=k=>ATT[k]||(ATT[k]=uid());   // نفس الـ id لو أعدت المحاولة، فالسيرفر مايكرّرش الحركة
+function busyOn(msg){if(busy)return false;busy=true;const b=$('#busy');if(b)b.style.display='flex';const t=$('#busy_t');if(t)t.textContent=msg||'جاري التنفيذ…';clearTimeout(_bt);_bt=setTimeout(busyOff,70000);return true}
+function busyOff(){busy=false;clearTimeout(_bt);const b=$('#busy');if(b)b.style.display='none'}
+const netErr=e=>/TIMEOUT|Failed to fetch|NetworkError|Load failed|network/i.test(String(e&&e.message));
+function failed(e){
+  busyOff();RET=null;
+  if(/AUTH/.test(e.message))return lockScreen('login');
+  if(netErr(e)){toast('النت بطيء أو فاصل. ممكن العملية تكون اتسجلت، هنحدّث الداتا… راجعها قبل ما تعيد',6500);setTimeout(load,1200)}
+  else toast('حصل خطأ: '+e.message,3500);
 }
-function load(){google.script.run.withSuccessHandler(r=>{D=r;render()}).withFailureHandler(e=>{if(/AUTH/.test(e.message))return lockScreen('login');$('#app').innerHTML='<div class="empty">تعذر تحميل البيانات: '+esc(e.message)+'</div>'}).getAll(TOKEN)}
+function call(fn,...a){
+  if(!busyOn('جاري الحفظ…'))return;
+  google.script.run.withSuccessHandler(r=>{ATT={};D=r;busyOff();toast('تم');closeSheet();render();if(_bchk){const k=_bchk;_bchk=null;setTimeout(()=>budgetToast(k),700)}})
+    .withFailureHandler(failed)[fn](TOKEN,...a);
+}
+function load(){
+  google.script.run.withSuccessHandler(r=>{D=r;render()}).withFailureHandler(e=>{
+    if(/AUTH/.test(e.message))return lockScreen('login');
+    if(D&&D.me){toast('تعذر تحديث الداتا. اتأكد من النت',4000);return}
+    $('#app').innerHTML='<div class="empty">تعذر تحميل البيانات: '+esc(e.message)+'<br><button class="btn" style="max-width:220px;margin:16px auto" onclick="load()">إعادة المحاولة</button></div>';
+  }).getAll(TOKEN);
+}
 const accName=id=>(D.acc.find(a=>a.id===id)||{name:'—'}).name;
 const kind=id=>(D.acc.find(a=>a.id===id)||{}).kind;
 
@@ -285,7 +311,7 @@ function moreView(c){
 let pushed=false;
 function closeSheet(){$('#modal').innerHTML='';if(pushed){pushed=false;try{history.back()}catch(e){}}}
 window.addEventListener('popstate',()=>{if(pushed){pushed=false;$('#modal').innerHTML=''}});
-function sheet(h){
+function sheet(h){ATT={};
   if(!pushed){try{history.pushState({m:1},'');pushed=true}catch(e){}}
   $('#modal').innerHTML=`<div class="sheet" onclick="if(event.target===this)closeSheet()"><div><button class="x" onclick="closeSheet()" aria-label="إغلاق">✕</button>${h}</div></div>`}
 const opts=(arr,sel)=>arr.map(([v,l])=>`<option value="${esc(v)}" ${v===sel?'selected':''}>${esc(l)}</option>`).join('');
@@ -318,7 +344,7 @@ function saveTx(){
   if((TX.type==='visa_pay'||TX.type==='transfer')&&(!TX.to||TX.to===TX.account))return toast('اختار حساب مختلف');
   const t=TX.type,cat=t==='expense'||t==='income'?(TX.category||(t==='expense'?catNames()[0]:INC[0])):'';
   _bchk=(t==='expense'&&!TX.editId)?{cat,date:TX.date,a}:null;
-  call('upsert','Tx',{id:TX.editId||uid(),by:TX.by||'',date:TX.date,type:t,amount:a,account:TX.account||document.querySelector('#f_account').value,to:TX.to||'',category:cat,sub:t==='expense'?(TX.sub||''):'',via:TX.via||'',note:TX.note||'',obId:TX.obId||'',ym:TX.obId?TX.ym:ym(TX.date)});
+  call('upsert','Tx',{id:TX.editId||attId('tx'),by:TX.by||'',date:TX.date,type:t,amount:a,account:TX.account||document.querySelector('#f_account').value,to:TX.to||'',category:cat,sub:t==='expense'?(TX.sub||''):'',via:TX.via||'',note:TX.note||'',obId:TX.obId||'',ym:TX.obId?TX.ym:ym(TX.date)});
 }
 function openDel(id){const t=D.tx.find(x=>x.id===id);sheet(`<h3>${TL[t.type]} — ${f(t.amount)} ج</h3><div style="color:var(--mut)">${t.date} • ${esc(t.category||'')} ${esc(t.note||'')}</div><button class="btn d" onclick="delTx('${id}')">حذف الحركة</button>`)}
 
@@ -334,7 +360,7 @@ function openObPay(id){
 function payObLite(id){
   const o=D.ob.find(x=>x.id===id),amt=parseFloat(val('op_amt')),acc=val('op_acc');
   if(!(amt>0))return toast('اكتب المبلغ');if(!acc)return toast('اختار الحساب اللي هتدفع منه');
-  RET=null;chain([['upsert','Tx',{id:uid(),date:todayStr(),type:'expense',amount:amt,account:acc,to:'',category:catOf(o),via:'',note:o.name,obId:o.id,ym:calc().cm}]]);
+  RET=null;chain([['upsert','Tx',{id:attId('ob:'+id),date:todayStr(),type:'expense',amount:amt,account:acc,to:'',category:catOf(o),via:'',note:o.name,obId:o.id,ym:calc().cm}]]);
 }
 const WD=[[6,'سبت'],[0,'أحد'],[1,'إثنين'],[2,'تلات'],[3,'أربع'],[4,'خميس'],[5,'جمعة']];
 const MN=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
@@ -417,12 +443,12 @@ function defAcc(ob){
 }
 const catOf=ob=>ob.kind==='دروس'?'دروس':ob.kind==='مواصلات'?'مواصلات':'فواتير';
 function chain(steps,after){
-  toast('جاري الحفظ…');
+  if(!busyOn('جاري الحفظ…'))return;
   (function go(i){
     google.script.run.withSuccessHandler(r=>{
       if(i+1<steps.length)return go(i+1);
-      D=r;render();toast('تم');const b=RET;RET=null;if(b)b();else closeSheet();if(after)after();
-    }).withFailureHandler(e=>{if(/AUTH/.test(e.message))return lockScreen('login');RET=null;toast('حصل خطأ: '+e.message)})[steps[i][0]](TOKEN,...steps[i].slice(1));
+      ATT={};D=r;busyOff();render();toast('تم');const b=RET;RET=null;if(b)b();else closeSheet();if(after)after();
+    }).withFailureHandler(failed)[steps[i][0]](TOKEN,...steps[i].slice(1));
   })(0);
 }
 
@@ -505,7 +531,7 @@ function payOcc(key,quick){
   const it=getItem(key),o=D.occ.find(x=>x.id===key);
   const amt=quick?it.amount:parseFloat(val('c_amt')),acc=quick?defAcc(it.ob):val('c_acc');
   if(!(amt>0))return toast('اكتب المبلغ');if(!acc)return toast('اختار حساب');
-  const tid=uid(),td=todayStr();
+  const tid=attId('pay:'+key),td=todayStr();
   const steps=[['upsert','Tx',{id:tid,date:td,type:'expense',amount:amt,account:acc,to:'',category:catOf(it.ob),via:'',note:it.ob.name+' • '+fd(it.orig),obId:it.ob.id,ym:ym(td)}],
     ['upsert','Occ',occRec(it,'paid',o&&o.newDate,amt,tid)]];
   if(!quick&&$('#c_all')&&$('#c_all').checked&&amt!==it.ob.amount)steps.push(['upsert','Obligations',{...it.ob,amount:amt}]);
@@ -710,7 +736,7 @@ function saveRd(){
   if(isNaN(v)||v<0)return toast('اكتب القراءة');if(!d)return toast('اختار التاريخ');
   const p=prevOf(m,d);let u=null;
   if(nw)u=v;else if(p){u=v-p.reading;if(u<0)return toast('القراءة أقل من آخر قراءة. لو عداد جديد علّم الخانة')}
-  const id=uid(),steps=[['upsert','Readings',{id,meter:m,date:d,reading:v,note:val('r_note'),reset:nw?'1':''}]];
+  const id=attId('rd'),steps=[['upsert','Readings',{id,meter:m,date:d,reading:v,note:val('r_note'),reset:nw?'1':''}]];
   if(u!==null)steps.push(['upsert','Bills',{id,meter:m,ym:ym(d),units:r2(u),expected:r2(cost(m,u).total),actual:'',txId:'',note:''}]);
   chain(steps);
 }
@@ -737,7 +763,7 @@ function saveBill(id){
   const nb={...b,ym:val('b_ym')||b.ym,actual:a>0?a:'',note:val('b_note')};
   if($('#b_tx')&&$('#b_tx').checked){
     if(!(a>0))return toast('اكتب المبلغ الفعلي الأول');
-    const tid=uid();nb.txId=tid;
+    const tid=attId('bill:'+id);nb.txId=tid;
     steps.push(['upsert','Tx',{id:tid,date:todayStr(),type:'expense',amount:a,account:val('b_acc'),to:'',category:'فواتير',via:'',note:'فاتورة '+T.name+' '+nb.ym,obId:'',ym:ym(todayStr())}]);
   }
   steps.push(['upsert','Bills',nb]);chain(steps);
@@ -922,9 +948,9 @@ function doChangePw(){
   if(!o)return toast('اكتب الباسورد الحالي');
   if(n.length<6)return toast('الباسورد الجديد 6 حروف على الأقل');
   if(n!==val('p_new2'))return toast('الباسورد الجديد مش متطابق');
-  toast('جاري التغيير…');
-  google.script.run.withSuccessHandler(t=>{TOKEN=t;if(ls.get('dt'))ls.set('dt',t);closeSheet();toast('الباسورد اتغيّر ✔')})
-   .withFailureHandler(e=>toast(e.message)).changePassword(TOKEN,o,n,!!ls.get('dt'));
+  if(!busyOn('جاري التغيير…'))return;
+  google.script.run.withSuccessHandler(t=>{busyOff();TOKEN=t;if(ls.get('dt'))ls.set('dt',t);closeSheet();toast('الباسورد اتغيّر ✔')})
+   .withFailureHandler(e=>{busyOff();toast(netErr(e)?'النت بطيء، جرّب تاني':e.message)}).changePassword(TOKEN,o,n,!!ls.get('dt'));
 }
 function openSec(){
   const us=(D.users||[]).filter(u=>u.role!=='admin');
@@ -1054,7 +1080,7 @@ function payPkg(){
   const ob=D.ob.find(x=>x.id===PK.id),n=parseInt(val('k_n'))||0,amt=parseFloat(val('k_amt')),acc=val('k_acc');
   if(!(n>0))return toast('اكتب عدد الحصص');if(!(amt>0))return toast('اكتب المبلغ');if(!acc)return toast('اختار حساب');
   const it=sessWin(ob).slice(0,n);if(it.length<n)return toast('مفيش حصص كفاية في الجدول');
-  const tid=uid(),td=todayStr(),each=Math.round(amt/n*100)/100;
+  const tid=attId('pkg:'+PK.id),td=todayStr(),each=Math.round(amt/n*100)/100;
   const list=it.map(i=>{const o=D.occ.find(x=>x.id===i.key);return {id:i.key,obId:ob.id,date:i.orig,status:'paid',newDate:o?o.newDate:'',amount:each,txId:tid}});
   chain([['upsert','Tx',{id:tid,date:td,type:'expense',amount:amt,account:acc,to:'',category:'دروس',via:'',note:ob.name+' • '+n+' حصة',obId:ob.id,ym:ym(td)}],['upsertMany','Occ',list]]);
 }
@@ -1185,7 +1211,7 @@ function askAmt(q){
 }
 function quickSave(q,a){
   if(!q||!(a>0))return toast('اكتب المبلغ');
-  const td=todayStr(),tx={id:uid(),date:td,type:'expense',amount:a,account:q.acc,to:'',category:q.c||'',sub:q.s||'',via:'',note:q.n,obId:'',ym:ym(td)};
+  const td=todayStr(),tx={id:attId('q:'+q.id),date:td,type:'expense',amount:a,account:q.acc,to:'',category:q.c||'',sub:q.s||'',via:'',note:q.n,obId:'',ym:ym(td)};
   RET=null;
   chain([['upsert','Tx',tx]],()=>{undoAdd(tx,q.n);if(q.c)budgetToast({cat:q.c,date:td,a})});
 }
@@ -1274,18 +1300,18 @@ function doSetup(){
   const u=val('l_u'),p=val('l_p');
   if(!u||p.length<6)return toast('اليوزر والباسورد (6 حروف+)');
   if(p!==val('l_p2'))return toast('الباسورد مش متطابق');
-  toast('جاري الإنشاء…');
-  google.script.run.withSuccessHandler(()=>doLogin()).withFailureHandler(e=>toast(e.message)).setup(u,p);
+  if(!busyOn('جاري الإنشاء…'))return;
+  google.script.run.withSuccessHandler(()=>{busyOff();doLogin()}).withFailureHandler(e=>{busyOff();toast(netErr(e)?'النت بطيء، جرّب تاني':e.message)}).setup(u,p);
 }
 function doLogin(){
   const u=val('l_u'),p=val('l_p'),r=$('#l_r').checked;
   if(!u||!p)return toast('اكتب اليوزر والباسورد');
-  toast('جاري الدخول…');
+  if(!busyOn('جاري الدخول…'))return;
   google.script.run.withSuccessHandler(t=>{
-    TOKEN=t;if(r)ls.set('dt',t);else{ls.del('dt');ls.del('fp')}
+    busyOff();TOKEN=t;if(r)ls.set('dt',t);else{ls.del('dt');ls.del('fp')}
     unlocked();
     if(r&&!ls.get('fp')&&window.PublicKeyCredential)setTimeout(()=>{if(confirm('تفعّل الدخول بالبصمة؟'))enableFp()},800);
-  }).withFailureHandler(e=>toast(e.message)).login(u,p,r);
+  }).withFailureHandler(e=>{busyOff();toast(netErr(e)?'النت بطيء، جرّب تاني':e.message)}).login(u,p,r);
 }
 async function enableFp(){
   if(!ls.get('dt')){return toast('سجّل دخول مع "افتكرني" الأول')}
