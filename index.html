@@ -95,6 +95,9 @@ details.card.dt{padding:4px 14px}
 h3.sec{margin:16px 4px 8px;font-size:13px;color:var(--mut);font-weight:500}
 #busy{display:none;position:fixed;inset:0;z-index:200;background:rgba(15,27,45,.38);align-items:center;justify-content:center;flex-direction:column;gap:12px;color:#fff;font-size:15px;touch-action:none}
 .spin{width:38px;height:38px;border:4px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
+.stkbar{display:flex;height:10px;border-radius:6px;overflow:hidden;margin:6px 0 10px;background:var(--bg)}.stkbar span{display:block;height:100%}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-inline-end:6px}
+.catrow{display:block;padding:9px 6px;border-bottom:1px solid var(--line);border-radius:8px;cursor:pointer}.catrow.on{background:var(--bg)}.catrow:last-child{border:0}
 </style>
 </head>
 <body>
@@ -289,14 +292,82 @@ function openTxSheet(id){
 }
 function editTx(id){const t=D.tx.find(x=>x.id===id);if(!t)return;TX={...t,editId:id};upTo(()=>openTxSheet(id));txForm()}
 
+/* ---------- تصنيفات الالتزامات + الإجماليات ---------- */
+const OBK0=['ثابت','قسط','دروس','مواصلات','آخر'],OBICON={'ثابت':'🏠','قسط':'💳','دروس':'📚','مواصلات':'🚌','آخر':'📦'},OBCOL=['#0E9F8E','#E4572E','#2B5C9E','#D99A00','#7A4FBF','#6B7A90','#C2417A'];
+let OM={m:'',k:''},OC={};
+const obIcon=k=>OBICON[k]||'🏷';
+function obKinds(extra){
+  const c=(D.cfg||{}).obcats,s=[...(Array.isArray(c)&&c.length?c:OBK0)];
+  D.ob.forEach(o=>{if(o.kind&&!s.includes(o.kind))s.push(o.kind)});
+  if(extra&&!s.includes(extra))s.push(extra);return s;
+}
+function obStat(o,M){
+  if(o.active==='no')return null;const cm=todayStr().slice(0,7);
+  if(o.weekdays&&o.pkg>0){
+    const pa=D.tx.filter(t=>t.obId===o.id&&ym(t.date)===M).reduce((s,t)=>s+t.amount,0),du=pkgBlocks(o).blocks.filter(b=>M===cm?b.month<=M:b.month===M).length*o.pkgPrice;
+    return pa||du?{exp:pa+du,paid:pa,due:du}:null;
+  }
+  if(o.weekdays){
+    const it=obMonth(o,M).filter(i=>i.state!=='skip');if(!it.length)return null;
+    const pa=it.filter(i=>i.state==='paid').reduce((s,i)=>s+i.amount,0),du=it.filter(i=>i.state==='due').reduce((s,i)=>s+i.amount,0);
+    return {exp:pa+du,paid:pa,due:du};
+  }
+  if((o.startYm&&o.startYm>M)||(o.endYm&&o.endYm<M))return null;
+  const a=o.amount*(o.times||1),paid=D.tx.some(t=>t.obId===o.id&&t.ym===M);
+  return {exp:a,paid:paid?a:0,due:paid?0:a};
+}
+function obCatStats(M){
+  const g={};
+  D.ob.forEach(o=>{const s=obStat(o,M);if(!s)return;const k=o.kind||'آخر',x=g[k]||(g[k]={k,exp:0,paid:0,due:0,n:0});x.exp+=s.exp;x.paid+=s.paid;x.due+=s.due;x.n++});
+  const rows=Object.values(g).sort((a,b)=>b.exp-a.exp);
+  return {rows,tot:rows.reduce((t,r)=>({exp:t.exp+r.exp,paid:t.paid+r.paid,due:t.due+r.due}),{exp:0,paid:0,due:0})};
+}
+function obGo(n){let [y,m]=(OM.m||todayStr().slice(0,7)).split('-').map(Number);m+=n;if(m>12){m=1;y++}if(m<1){m=12;y--}OM.m=y+'-'+pad(m);render()}
+function obFilt(k){OM.k=OM.k===k?'':k;render()}
 function obView(c){
-  const wk=wkList(c),mo=c.obs.map(o=>`<div class="row"><span class="l" onclick="openOb('${o.id}')">${esc(o.name)} <span class="tag">${esc(o.kind)}</span><small>يوم ${o.day}${o.times>1?' • '+f(o.amount)+' × '+o.times:''}</small></span>
+  const M=OM.m||(OM.m=c.cm),[y,mo]=M.split('-').map(Number),cs=obCatStats(M),T=cs.tot,kf=OM.k&&cs.rows.some(r=>r.k===OM.k)?OM.k:'';
+  const wk=wkList(c,kf),mrow=c.obs.filter(o=>!kf||o.kind===kf).map(o=>`<div class="row"><span class="l" onclick="openOb('${o.id}')">${esc(o.name)} <span class="tag">${obIcon(o.kind)} ${esc(o.kind)}</span><small>يوم ${o.day}${o.times>1?' • '+f(o.amount)+' × '+o.times:''}</small></span>
    ${o.paid?'<span class="v in">اتدفع ✔</span>':`<span class="v">${f(o.total)} <button class="pay" onclick="payOb('${o.id}')">دفع</button></span>`}</div>`).join('');
+  const bar=cs.rows.length&&T.exp>0?`<div class="stkbar">${cs.rows.map((r,i)=>`<span style="width:${(r.exp/T.exp*100).toFixed(1)}%;background:${OBCOL[i%OBCOL.length]}"></span>`).join('')}</div>`:'';
+  const rows=cs.rows.map((r,i)=>{const p=r.exp>0?r.paid/r.exp*100:0;
+    return `<div class="catrow ${kf===r.k?'on':''}" onclick="obFilt(decodeURIComponent('${ek(r.k)}'))"><div style="display:flex;justify-content:space-between;align-items:center"><span><i class="dot" style="background:${OBCOL[i%OBCOL.length]}"></i>${obIcon(r.k)} <b>${esc(r.k)}</b> <small style="color:var(--mut)">(${r.n})</small></span><b>${f(r.exp)}</b></div>
+     <span class="bd-t" style="margin:5px 0 2px"><span style="width:${Math.min(p,100).toFixed(0)}%;background:#0E9F8E"></span></span>
+     <small style="color:var(--mut)">مدفوع <span class="in">${f(r.paid)}</span> • باقي <span class="${r.due>0?'out':''}">${f(r.due)}</span></small></div>`}).join('');
   return `<header><small>التزامات الشهر</small><div class="big" style="font-size:24px">${f(c.unpaid)} ج باقي</div></header><main>
-   <button class="btn" style="margin:0 0 4px;background:var(--ink)" onclick="openOb()">+ التزام جديد</button>
+   <div class="card"><h3>الإجماليات حسب التصنيف</h3>
+    <div class="calnav" style="margin:0 0 4px"><button onclick="obGo(-1)">›</button><b>${MN[mo-1]} ${y}</b><button onclick="obGo(1)">‹</button></div>
+    ${rows?bar+rows+`<div class="row" style="margin-top:6px"><span class="l"><b>الإجمالي</b><small>مدفوع ${f(T.paid)} • باقي ${f(T.due)}</small></span><span class="v">${f(T.exp)}</span></div>`:'<div class="empty">مفيش التزامات في الشهر ده</div>'}
+    ${kf?`<div style="text-align:center;margin-top:8px"><button class="pay" onclick="OM.k='';render()">عرض كل التصنيفات ✕ (${obIcon(kf)} ${esc(kf)})</button></div>`:''}</div>
+   <div style="display:flex;gap:8px"><button class="btn" style="margin:0 0 4px;background:var(--ink)" onclick="openOb()">+ التزام جديد</button><button class="btn" style="margin:0 0 4px;background:#fff;color:var(--ink);border:1px solid var(--line)" onclick="openObCats()">🏷 التصنيفات</button></div>
    ${wk?`<h3 class="sec">أسبوعية (دروس، مواصلات…)</h3><div class="card">${wk}</div>`:''}
-   ${mo?`<h3 class="sec">شهرية</h3><div class="card">${mo}</div>`:''}
-   ${!wk&&!mo?'<div class="card"><div class="empty">ضيف الإيجار، الكهربا، الأقساط، المواصلات، دروس الأولاد…</div></div>':''}</main>`;
+   ${mrow?`<h3 class="sec">شهرية</h3><div class="card">${mrow}</div>`:''}
+   ${!wk&&!mrow?'<div class="card"><div class="empty">'+(kf?'مفيش التزامات في التصنيف ده':'ضيف الإيجار، الكهربا، الأقساط، المواصلات، دروس الأولاد…')+'</div></div>':''}</main>`;
+}
+function openObCats(){
+  RET=null;const L=obKinds(),cs=obCatStats(todayStr().slice(0,7)),by=Object.fromEntries(cs.rows.map(r=>[r.k,r]));
+  sheet(`<h3>🏷 تصنيفات الالتزامات</h3><small style="color:var(--mut);display:block;line-height:1.7">التصنيف بيتحدد لكل التزام، وفي تبويب الالتزامات بتشوف إجماليات كل تصنيف (المتوقع والمدفوع والباقي).</small>
+   ${L.map((k,i)=>`<div class="row" onclick="openObCat(${i})"><span class="l">${obIcon(k)} ${esc(k)}<small>${D.ob.filter(o=>o.kind===k).length} التزام${by[k]?' • '+f(by[k].exp)+' الشهر ده':''}</small></span><span class="v">‹</span></div>`).join('')}
+   <button class="btn" onclick="openObCat(-1)">+ تصنيف جديد</button>`);
+}
+function openObCat(i){const L=obKinds();OC=i>=0?{i,n:L[i],old:L[i],isNew:false}:{i:-1,n:'',old:'',isNew:true};obCatForm()}
+function obCatForm(){
+  RET=openObCats;upTo(openObCats);
+  sheet(`<h3>${OC.isNew?'تصنيف جديد':'تعديل التصنيف'}</h3>
+   <label>اسم التصنيف</label><input id="oc_n" value="${esc(OC.n)}" placeholder="مثلاً: اشتراكات">
+   <button class="btn" onclick="obCatSave()">حفظ</button>${OC.isNew?'':'<button class="btn d" onclick="obCatDel()">حذف التصنيف</button><small style="color:var(--mut);display:block;margin-top:10px;line-height:1.7">تغيير الاسم بيتحدّث على كل الالتزامات اللي عليه.</small>'}`);
+}
+function obCatSave(){
+  const n=val('oc_n').trim();if(!n)return toast('اكتب اسم التصنيف');
+  const L=obKinds();if(L.some((k,i)=>k===n&&i!==OC.i))return toast('التصنيف ده موجود');
+  const nl=[...L];if(OC.i>=0)nl[OC.i]=n;else nl.push(n);
+  const steps=[['upsert','Settings',{id:'obcats',json:JSON.stringify(nl)}]];
+  if(OC.i>=0&&OC.old!==n){const ch=D.ob.filter(o=>o.kind===OC.old).map(o=>({...o,kind:n}));if(ch.length)steps.push(['upsertMany','Obligations',ch]);if(OM.k===OC.old)OM.k=n}
+  RET=openObCats;chain(steps);
+}
+function obCatDel(){
+  const n=D.ob.filter(o=>o.kind===OC.old).length;
+  if(n)return toast('فيه '+n+' التزام على التصنيف ده. غيّر تصنيفهم الأول');
+  askConfirm('حذف التصنيف؟',`<b>${esc(OC.old)}</b> هيتشال من القايمة.`,'نعم، احذف',()=>{RET=openObCats;chain([['upsert','Settings',{id:'obcats',json:JSON.stringify(obKinds().filter((_,i)=>i!==OC.i))}]])});
 }
 
 function accView(c){
@@ -308,7 +379,7 @@ function moreView(c){
   const t=(i,l,fn)=>`<button onclick="${fn}"><span>${i}</span>${l}</button>`;
   return `<header><small>المزيد</small><div class="big" style="font-size:24px">كل الأدوات</div></header><main>
    <h3 class="sec">فلوسي</h3><div class="tl">${t('🏦','الحسابات والكاش',"tab='acc';render()")}${t('📄','كشف حساب',"openSt('all')")}${t('🎯','الميزانية',"openBd()")}${t('📊','التقرير الشهري',"openRp()")}</div>
-   <h3 class="sec">أدوات</h3><div class="tl">${t('⚡','المصروف السريع',"openQuick()")}${t('🏷','بنود الصرف',"openCats()")}${t('🔌','العدادات والفواتير',"openMt('elec')")}</div>
+   <h3 class="sec">أدوات</h3><div class="tl">${t('⚡','المصروف السريع',"openQuick()")}${t('🏷','بنود الصرف',"openCats()")}${t('🔌','العدادات والفواتير',"openMt('elec')")}${t('🏷','تصنيفات الالتزامات',"openObCats()")}</div>
    <h3 class="sec">الأمان</h3><div class="tl">${t('🔐','المستخدمين والباسورد',"openSec()")}${t('👆','تفعيل البصمة',"enableFp()")}${t('🔒','قفل / خروج',"askLogout()")}${t('🔄','ربط شيت تاني',"switchSheet()")}</div></main>`;
 }
 
@@ -381,7 +452,7 @@ function saveTx(){
 }
 function openDel(id){const t=D.tx.find(x=>x.id===id);sheet(`<h3>${TL[t.type]} — ${f(t.amount)} ج</h3><div style="color:var(--mut)">${t.date} • ${esc(t.category||'')} ${esc(t.note||'')}</div><button class="btn d" onclick="delTx('${id}')">حذف الحركة</button>`)}
 
-function payOb(id){if(RO())return openObPay(id);const o=D.ob.find(x=>x.id===id);openTx({type:'expense',amount:o.amount*(o.times||1),category:'فواتير',note:o.name,obId:o.id,ym:calc().cm,account:(D.acc.find(a=>a.kind==='bank')||{}).id})}
+function payOb(id){openObPay(id)}
 function openObPay(id){
   const o=D.ob.find(x=>x.id===id);if(!o)return;
   sheet(`<h3>دفع ${esc(o.name)}</h3>
@@ -422,7 +493,7 @@ function obForm(){
   sheet(`<h3>${OB.isNew?'التزام جديد':'تعديل الالتزام'}</h3>
    <div class="seg"><button class="${!w?'on':''}" onclick="obMode('m')">شهري (يوم من الشهر)</button><button class="${w?'on':''}" onclick="obMode('w')">أسبوعي (أيام معينة)</button></div>
    <label>الاسم</label><input id="o_name" value="${esc(OB.name)}" placeholder="درس عربي / مواصلات / إيجار">
-   <label>النوع</label><select id="o_kind">${opts(['ثابت','قسط','دروس','مواصلات','آخر'].map(x=>[x,x]),OB.kind)}</select>
+   <label>النوع</label><select id="o_kind">${opts(obKinds(OB.kind).map(x=>[x,x]),OB.kind)}</select>
    ${w?`<label>الأيام اللي بتتدفع فيها كل أسبوع</label><div class="seg">${WD.map(([d,l])=>`<button class="${OB.wd.includes(d)?'on':''}" onclick="obWd(${d})">${l}</button>`).join('')}</div>
      <label>طريقة الدفع</label><div class="seg"><button class="${OB.pay!=='p'?'on':''}" onclick="obPay('s')">كل حصة / مرة</button><button class="${OB.pay==='p'?'on':''}" onclick="obPay('p')">بالباقة</button></div>
      ${OB.pay==='p'?`<label>الباقات (عدد الحصص ← السعر)</label>
@@ -502,8 +573,8 @@ function wkRows(c){
     const t=r.reduce((s,i)=>s+i.amount,0),nx=r.map(i=>i.date).sort()[0];
     return `<div class="row" onclick="openCal('${o.id}')"><span class="l">${esc(o.name)}<small>باقي ${r.length} مرة • أقرب يوم ${fd(nx)}</small></span><span class="v warn">${f(t)}</span></div>`}).join('');
 }
-function wkList(c){
-  return D.ob.filter(o=>o.active!=='no'&&o.weekdays).map(o=>{
+function wkList(c,kf){
+  return D.ob.filter(o=>o.active!=='no'&&o.weekdays&&(!kf||o.kind===kf)).map(o=>{
     if(o.pkg>0){const s=c.sess.find(x=>x.ob.id===o.id)||{held:[],blocks:[]},bl=s.blocks.filter(b=>b.month<=c.cm);
       return `<div class="row" onclick="openCal('${o.id}')"><span class="l">${esc(o.name)} <span class="tag">باقة</span><small>📚 ${pkgList(o).map(k=>k.n+'='+f(k.p)).join(' • ')} • ${s.held.length} حصة حصلت • ${bl.length} باقة على الشهر ده • دفع عند ${o.payAt==='first'?'أول':'آخر'} حصة</small></span><span class="v warn">${f(bl.length*o.pkgPrice)}</span></div>`}
     const it=c.occs.filter(i=>i.ob.id===o.id&&i.state!=='skip'),p=it.filter(i=>i.state==='paid').length,r=it.filter(i=>i.state==='due');
@@ -537,8 +608,8 @@ function drawCal(){
 
 /* ---------- يوم واحد: دفع / إلغاء / نقل / تعديل مبلغ ---------- */
 const RO=()=>D.me&&D.me.role==='user';
-function askAccOpts(){const c=calc(),L=D.acc.map(a=>[a.id,a.name+' • '+f(c.bal[a.id]||0)+' ج']);return D.acc.length>1?[['','— اختار الحساب اللي هتدفع منه —'],...L]:L}
-function accHint(sa,sm,so){const id=val(sa),el=$('#'+so);if(!el)return;if(!id){el.innerHTML='';return}const b=calc().bal[id]||0,a=parseFloat(val(sm))||0;el.innerHTML='الرصيد المتاح: <b>'+f(b)+'</b>'+(a>b?' <span class="out">• أقل من المبلغ</span>':'')}
+function askAccOpts(){const c=calc(),L=D.acc.map(a=>[a.id,a.kind==='visa'?a.name+' • الحد المتاح '+f(c.credit)+' ج':a.name+' • '+f(c.bal[a.id]||0)+' ج']);return D.acc.length>1?[['','— اختار الحساب اللي هتدفع منه —'],...L]:L}
+function accHint(sa,sm,so){const id=val(sa),el=$('#'+so);if(!el)return;if(!id){el.innerHTML='';return}const cc=calc(),vz=kind(id)==='visa',b=vz?cc.credit:(cc.bal[id]||0),a=parseFloat(val(sm))||0;el.innerHTML=(vz?'الحد المتاح: <b>':'الرصيد المتاح: <b>')+f(b)+'</b>'+(a>b?' <span class="out">• أقل من المبلغ</span>':'')}
 const canPay=id=>!!(D.me&&D.me.role==='user'&&(D.me.obPay||[]).includes(id));
 function openOcc(key,fromCal){
   RET=fromCal?drawCal:null;upTo(fromCal?drawCal:null);
@@ -555,7 +626,7 @@ function openOcc(key,fromCal){
   :`${pk?`${blockInfo(ob,it)}<button class="btn" onclick="openPkg('${ob.id}')">📚 ادفع الحصص المتراكمة</button>`
     :`<label>المبلغ</label><input id="c_amt" type="number" step="any" inputmode="decimal" value="${it.amount}">
     <label class="chk"><input id="c_all" type="checkbox"> غيّر المبلغ لكل المرات الجاية</label>
-    <label>الدفع من</label><select id="c_acc">${opts(accs,defAcc(ob))}</select>
+    <label>الدفع من</label><select id="c_acc" onchange="accHint('c_acc','c_amt','c_hint')">${opts(askAccOpts(),'')}</select><div id="c_hint" style="font-size:13px;color:var(--mut);margin-top:6px"></div>
     <button class="btn" onclick="payOcc('${key}')">✔ اتدفع (نزّله مصروف)</button>`}
     <label>نقل لتاريخ تاني</label><div style="display:flex;gap:8px"><input id="c_date" type="date" value="${it.date}"><button class="pay" style="padding:0 18px" onclick="occMove('${key}')">نقل</button></div>
     ${pk?'':`<button class="btn" style="background:var(--ink)" onclick="occAmt('${key}')">✏ حفظ المبلغ بس</button>`}
@@ -563,7 +634,15 @@ function openOcc(key,fromCal){
     ${it.moved?`<button class="btn d" style="color:var(--ink);border-color:var(--line)" onclick="occRestore('${key}')">رجّعه لتاريخه الأصلي</button>`:''}`}`);
 }
 const occRec=(it,st,nd,amt,tx)=>({id:it.key,obId:it.ob.id,date:it.orig,status:st,newDate:nd||'',amount:amt||'',txId:tx||''});
-function quickPay(key){payOcc(key,true)}
+function quickPay(key){openOccPay(key)}
+function openOccPay(key){
+  const it=getItem(key),ob=it.ob;
+  sheet(`<h3>دفع ${esc(ob.name)}</h3><div style="color:var(--mut);font-size:13px">${fdl(it.orig)}${it.extra?' • يوم إضافي':''}</div>
+   <label>المبلغ</label><input id="c_amt" type="number" step="any" inputmode="decimal" value="${it.amount}" oninput="accHint('c_acc','c_amt','c_hint')">
+   <label>الدفع من</label><select id="c_acc" onchange="accHint('c_acc','c_amt','c_hint')">${opts(askAccOpts(),'')}</select>
+   <div id="c_hint" style="font-size:13px;color:var(--mut);margin-top:6px"></div>
+   <button class="btn" onclick="payOcc('${key}')">✔ اتدفع</button>`);
+}
 function payOcc(key,quick){
   const it=getItem(key),o=D.occ.find(x=>x.id===key);
   const amt=quick?it.amount:parseFloat(val('c_amt')),acc=quick?defAcc(it.ob):val('c_acc');
@@ -916,7 +995,8 @@ function rpHtml(M){
    </div>
    <div class="g2">
     <div class="bx"><h4>الالتزامات</h4><table>${obRows||'<tr><td class="mut">مفيش التزامات للشهر ده</td></tr>'}</table>
-     <div class="mut" style="margin-top:5px">مدفوع <b class="in">${f(oPaid)}</b> • باقي <b class="out">${f(oDue)}</b></div></div>
+     <div class="mut" style="margin-top:5px">مدفوع <b class="in">${f(oPaid)}</b> • باقي <b class="out">${f(oDue)}</b></div>
+     ${obCatStats(M).rows.length?`<div class="mut" style="margin-top:3px;font-size:10px">حسب التصنيف: ${obCatStats(M).rows.map(r=>obIcon(r.k)+' '+esc(r.k)+' '+f(r.exp)).join(' • ')}</div>`:''}</div>
     <div class="bx"><h4>العدادات (المتوقع × الفعلي)</h4>${mRows?`<table><tr><th>العداد</th><th class="n">الاستهلاك</th><th class="n">متوقع</th><th class="n">فعلي</th><th class="n">الفرق</th></tr>${mRows}</table>`:'<div class="mut">مفيش قراءات متسجلة للشهر ده.</div>'}</div>
    </div>
    <div class="g2">
@@ -1102,7 +1182,7 @@ function openPkg(id){
    <div class="seg">${pl.map(k=>`<button onclick="pkSet(${k.n})">${k.n} حصة • ${f(k.p)}</button>`).join('')}${held>0&&!pl.some(k=>k.n===held)?`<button onclick="pkSet(${held})">كل المتراكم (${held})</button>`:''}</div>
    <input id="k_n" type="number" inputmode="numeric" value="${k0}" oninput="pkCalc()" style="margin-top:8px">
    <label>المبلغ (بيتحسب لوحده وتقدر تعدّله)</label><input id="k_amt" type="number" step="any" inputmode="decimal" value="${pkgPrice(ob,k0)}" oninput="PK.manual=true;accHint('k_acc','k_amt','k_hint')">
-   <label>الدفع من</label><select id="k_acc" onchange="accHint('k_acc','k_amt','k_hint')">${RO()?opts(askAccOpts(),''):opts(D.acc.map(a=>[a.id,a.name]),defAcc(ob))}</select><div id="k_hint" style="font-size:13px;color:var(--mut);margin-top:6px"></div>
+   <label>الدفع من</label><select id="k_acc" onchange="accHint('k_acc','k_amt','k_hint')">${opts(askAccOpts(),'')}</select><div id="k_hint" style="font-size:13px;color:var(--mut);margin-top:6px"></div>
    <div id="k_pv" style="margin-top:10px;font-size:13px;color:var(--mut);line-height:1.7"></div>
    <button class="btn" onclick="payPkg()">✔ اتدفع (نزّله مصروف)</button>`);
   pkCalc();
