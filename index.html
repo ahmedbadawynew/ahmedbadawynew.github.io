@@ -31,7 +31,9 @@ nav button.on{color:var(--ink);font-weight:800}
 nav .add{background:var(--ink);color:#fff;width:54px;height:54px;border-radius:50%;font-size:30px;margin-top:-26px;padding:0;line-height:1}
 .sheet{position:fixed;inset:0;background:rgba(15,27,45,.55);display:flex;align-items:flex-end;z-index:9}
 .sheet>div{background:#fff;width:100%;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;padding:16px}
-.x{display:block;margin:0 0 6px auto;margin-inline-start:0;background:var(--bg);border:0;border-radius:50%;width:38px;height:38px;font-size:18px;color:var(--ink)}
+.x{background:var(--bg);border:0;border-radius:50%;width:40px;height:40px;font-size:18px;color:var(--ink)}
+.shh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.bk{display:inline-block;color:#fff;opacity:.9;font-size:14px;padding:8px 14px 8px 18px;margin:-8px -14px 2px 0;cursor:pointer;border-radius:12px}.bk:active{background:rgba(255,255,255,.18)}
 label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
 input,select{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff}
 .seg{display:flex;gap:6px;flex-wrap:wrap}
@@ -185,17 +187,19 @@ function calc(){
     const paid=D.tx.some(t=>t.obId===o.id&&t.ym===cm);
     return {...o,total:o.amount*(o.times||1),paid,late:!paid&&o.day<day}});
   const occs=D.ob.filter(o=>o.active!=='no'&&o.weekdays).flatMap(o=>obMonth(o,cm));
-  const sess=D.ob.filter(o=>o.active!=='no'&&o.weekdays&&o.pkg>0).map(o=>{const pb=pkgBlocks(o);return {ob:o,held:pb.held,blocks:pb.blocks,partial:pb.partial}});
+  const sess=D.ob.filter(o=>o.active!=='no'&&o.weekdays&&o.pkg>0).map(o=>{const pb=pkgBlocks(o);return {ob:o,held:pb.held,blocks:pb.blocks,partial:pb.partial,dueN:pb.dueN}});
   const unpaid=obs.filter(o=>!o.paid).reduce((s,o)=>s+o.total,0)+occs.filter(i=>i.state==='due'&&!i.ob.pkg).reduce((s,i)=>s+i.amount,0)+sess.reduce((s,x)=>s+x.blocks.filter(b=>b.month<=cm).reduce((a,b)=>a+b.price,0),0);
   return {bal,cash,bank,total,due,cur,vLimit,credit:vLimit-total,obs,occs,sess,unpaid,inc,exp,cm,day,
     free:cash+bank-due-unpaid,net:cash+bank-total-unpaid};
 }
 
+let _lt='home';
 function render(){
+  if(tab!==_lt){if(!_nb&&SUBS.includes(tab))PAR[tab]=_lt;_lt=tab}_nb=false;
   const c=calc();
   if(D.me&&D.me.role==='user')return renderLite(c);
   $('#nav').innerHTML=[['home','🏠','الرئيسية'],['tx','📒','الحركات'],['add','+',''],['ob','📅','الالتزامات'],['mr','☰','المزيد']]
-   .map(([k,i,l])=>k==='add'?'<button class="add" onclick="openTx()">+</button>':`<button class="${tab===k||(k==='mr'&&['acc','st','rp','bd','mt'].includes(tab))?'on':''}" onclick="tab='${k}';render()">${i}<br>${l}</button>`).join('');
+   .map(([k,i,l])=>k==='add'?'<button class="add" onclick="fab()">+</button>':`<button class="${tab===k||(k==='mr'&&['acc','st','rp','bd','mt'].includes(tab))?'on':''}" onclick="tab='${k}';render()">${i}<br>${l}</button>`).join('');
   $('#app').innerHTML=({home,tx:txView,ob:obView,acc:accView,st:stView,mt:mtView,rp:rpView,bd:bdView,mr:moreView})[tab](c);if(tab==='rp')rpFit();
 }
 
@@ -283,7 +287,7 @@ function openTxSheet(id){
   sheet(`<h3>${TL[t.type]} — ${f(t.amount)} ج</h3>${r('التاريخ',t.date)}${r('الحساب',esc(w))}${r('البند',t.category?esc(t.category)+(t.sub?' › '+esc(t.sub):''):'')}${r('الطريقة',esc(t.via||''))}${r('ملاحظة',esc(t.note||''))}${r('سجّلها',esc(t.by||''))}
    <button class="btn" onclick="editTx('${id}')">✏ تعديل</button><button class="btn d" onclick="delTx('${id}')">حذف الحركة</button>`);
 }
-function editTx(id){const t=D.tx.find(x=>x.id===id);if(!t)return;TX={...t,editId:id};txForm()}
+function editTx(id){const t=D.tx.find(x=>x.id===id);if(!t)return;TX={...t,editId:id};upTo(()=>openTxSheet(id));txForm()}
 
 function obView(c){
   const wk=wkList(c),mo=c.obs.map(o=>`<div class="row"><span class="l" onclick="openOb('${o.id}')">${esc(o.name)} <span class="tag">${esc(o.kind)}</span><small>يوم ${o.day}${o.times>1?' • '+f(o.amount)+' × '+o.times:''}</small></span>
@@ -296,7 +300,7 @@ function obView(c){
 }
 
 function accView(c){
-  return `<header><small onclick="tab='mr';render()" style="cursor:pointer">→ رجوع للمزيد</small><div class="big" style="font-size:24px">الحسابات والكاش</div><div class="sub"><span>إجمالي السيولة: ${f(c.cash+c.bank)} ج</span></div></header><main>
+  return `<header><a class="bk noprint" onclick="goBack()">→ رجوع</a><div class="big" style="font-size:24px">الحسابات والكاش</div><div class="sub"><span>إجمالي السيولة: ${f(c.cash+c.bank)} ج</span></div></header><main>
   <button class="btn" style="margin:0 0 12px;background:var(--ink)" onclick="openAcc()">+ حساب / مكان كاش</button><div class="card">`+
   D.acc.map(a=>`<div class="row" onclick="openAcc('${a.id}')"><span class="l">${esc(a.name)}<small>${{bank:'بنك',cash:'كاش',visa:'فيزا ائتمانية'}[a.kind]}</small></span><span class="v">${a.kind==='visa'?'عليا '+f(c.total):f(c.bal[a.id])}</span><button class="pay" onclick="event.stopPropagation();openSt('${a.id}')">كشف</button></div>`).join('')+'</div></main>';
 }
@@ -308,20 +312,49 @@ function moreView(c){
    <h3 class="sec">الأمان</h3><div class="tl">${t('🔐','المستخدمين والباسورد',"openSec()")}${t('👆','تفعيل البصمة',"enableFp()")}${t('🔒','قفل / خروج',"askLogout()")}${t('🔄','ربط شيت تاني',"switchSheet()")}</div></main>`;
 }
 
-let pushed=false;
-function closeSheet(){$('#modal').innerHTML='';if(pushed){pushed=false;try{history.back()}catch(e){}}}
-window.addEventListener('popstate',()=>{if(pushed){pushed=false;$('#modal').innerHTML=''}});
-function sheet(h){ATT={};
-  if(!pushed){try{history.pushState({m:1},'');pushed=true}catch(e){}}
-  $('#modal').innerHTML=`<div class="sheet" onclick="if(event.target===this)closeSheet()"><div><button class="x" onclick="closeSheet()" aria-label="إغلاق">✕</button>${h}</div></div>`}
+/* ---------- التنقل والرجوع (زرار الرجوع بتاع الموبايل وزراير الرجوع جوه التطبيق) ---------- */
+let shOpen=false,UP=null,_up=null,_exitT=0,_nb=false;
+const SUBS=['acc','st','rp','bd','mt'],PAR={};
+function upTo(f){_up=f}                                  // الشاشة الأم للـ sheet اللي هيتفتح (للرجوع خطوة)
+function closeSheet(){$('#modal').innerHTML='';shOpen=false;UP=null;_up=null}
+function sheetBack(){const f=UP;if(f){UP=null;f()}else closeSheet()}
+function sheet(h){ATT={};UP=_up;_up=null;shOpen=true;
+  $('#modal').innerHTML=`<div class="sheet" onclick="if(event.target===this)sheetBack()"><div><div class="shh">${UP?'<button class="x" onclick="sheetBack()" aria-label="رجوع">→</button>':'<span></span>'}<button class="x" onclick="closeSheet()" aria-label="إغلاق">✕</button></div>${h}</div></div>`}
+function goBack(){
+  const cf=$('#cf');if(cf&&cf.innerHTML){cfNo();return true}      // 1) نافذة التأكيد
+  if(busy)return true;                                               // 2) في عملية شغالة
+  if(shOpen){sheetBack();return true}                                // 3) sheet (خطوة لشاشتها الأم لو في)
+  const L=$('#lock');if(L&&L.style.display==='flex')return false;   // 4) شاشة الدخول
+  if(tab!=='home'){_nb=true;tab=SUBS.includes(tab)?(PAR[tab]||'mr'):'home';render();window.scrollTo(0,0);return true}  // 5) شاشة فرعية ← اللي فتحتها، شاشة رئيسية ← الرئيسية
+  return false;                                                      // 6) الرئيسية: اخرج
+}
+window.addEventListener('popstate',()=>{
+  if(goBack()){try{history.pushState({g:1},'')}catch(e){}return}
+  if(Date.now()-_exitT<2500){try{history.back()}catch(e){}return}
+  _exitT=Date.now();toast('اضغط رجوع تاني للخروج',2200);try{history.pushState({g:1},'')}catch(e){}
+});
+try{history.replaceState({base:1},'');history.pushState({g:1},'')}catch(e){}
 const opts=(arr,sel)=>arr.map(([v,l])=>`<option value="${esc(v)}" ${v===sel?'selected':''}>${esc(l)}</option>`).join('');
 const val=id=>$('#'+id).value;
 
+/* زرار + دايماً بيسجّل حركة، بس بيجهّز الحساب/البند/النوع حسب الشاشة المفتوحة */
+function fab(){
+  const p={};
+  if(tab==='st'&&ST.acc&&ST.acc!=='all'&&D.acc.some(a=>a.id===ST.acc))p.account=ST.acc;
+  if(tab==='tx'){
+    const t=TF.type;
+    if(['income','visa_pay','transfer'].includes(t))p.type=t;
+    if((!p.type||p.type==='expense')&&TF.acc!=='all')p.account=TF.acc;
+    if(TF.cat!=='all'){if(p.type==='income'&&INC.includes(TF.cat))p.category=TF.cat;else if(!p.type&&catNames().includes(TF.cat))p.category=TF.cat}
+  }
+  openTx(p);
+}
 let TX={};
 function openTx(p){TX={type:'expense',date:todayStr(),...p};if(D.me&&D.me.role==='user'&&!D.me.spend&&D.me.deposit)TX.type='income';txForm()}
 function txKeep(){['amount','date','account','to','category','sub','via','note'].forEach(k=>{const e=$('#f_'+k);if(e)TX[k]=e.value})}
 function setType(t){txKeep();TX.type=t;TX.account=TX.to=TX.category=TX.sub='';txForm()}
 function txForm(){
+  if(UP)upTo(UP);
   const t=TX.type,nv=D.acc.filter(a=>a.kind!=='visa').map(a=>[a.id,a.name]),all=D.acc.map(a=>[a.id,a.name]);
   const vs=D.acc.filter(a=>a.kind==='visa').map(a=>[a.id,a.name]);
   const from=t==='expense'?all:nv, toL=t==='visa_pay'?vs:nv;
@@ -374,10 +407,11 @@ let OB={},RET=null,CAL={id:'',mo:''};
 /* ---------- الالتزامات: إضافة / تعديل ---------- */
 function openOb(id){
   const o=D.ob.find(x=>x.id===id)||{id:uid(),kind:'ثابت',times:1,day:1,startYm:todayStr().slice(0,7),endYm:'',amount:'',name:'',weekdays:''};
-  OB={...o,isNew:!id,startDate:o.startDate||(o.weekdays?(id&&o.startYm?o.startYm+'-01':todayStr()):''),mode:o.weekdays?'w':'m',pay:o.pkg>0?'p':'s',pk:pkgList(o).map(k=>({n:k.n,p:k.p})),wd:String(o.weekdays||'').split(',').filter(x=>x!=='').map(Number)};
+  OB={...o,isNew:!id,payAt:o.payAt==='first'?'first':'last',startDate:o.startDate||(o.weekdays?(id&&o.startYm?o.startYm+'-01':todayStr()):''),mode:o.weekdays?'w':'m',pay:o.pkg>0?'p':'s',pk:pkgList(o).map(k=>({n:k.n,p:k.p})),wd:String(o.weekdays||'').split(',').filter(x=>x!=='').map(Number)};
   obForm();
 }
 function obKeep(){(OB.pk||[]).forEach((k,i)=>{const a=$('#pk_n'+i),b=$('#pk_p'+i);if(a)k.n=a.value;if(b)k.p=b.value});[['name','o_name'],['kind','o_kind'],['startDate','o_sd'],['pkg','o_pkg'],['pkgPrice','o_pp'],['amount','o_amount'],['times','o_times'],['day','o_day'],['startYm','o_start'],['endYm','o_end']].forEach(([k,i])=>{const e=$('#'+i);if(e)OB[k]=e.value})}
+function obPayAt(v){obKeep();OB.payAt=v;obForm()}
 function obPay(m){obKeep();OB.pay=m;if(m==='p'&&!(OB.pk||[]).length)OB.pk=[{n:'',p:''}];obForm()}
 function pkAdd(){obKeep();OB.pk.push({n:'',p:''});obForm()}
 function pkRm(i){obKeep();OB.pk.splice(i,1);obForm()}
@@ -394,7 +428,10 @@ function obForm(){
      ${OB.pay==='p'?`<label>الباقات (عدد الحصص ← السعر)</label>
       ${(OB.pk||[]).map((k,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input id="pk_n${i}" type="number" inputmode="numeric" placeholder="عدد الحصص" value="${k.n}"><input id="pk_p${i}" type="number" step="any" inputmode="decimal" placeholder="السعر" value="${k.p}"><button class="pay" style="background:var(--out);padding:10px 12px" onclick="pkRm(${i})">✕</button></div>`).join('')}
       <button class="btn" style="margin-top:4px;background:var(--ink)" onclick="pkAdd()">+ باقة</button>
-      <small style="color:var(--mut);display:block;margin-top:6px;line-height:1.7">مثال: 1 حصة = 120، 4 حصص = 440، 8 حصص = 800. أول باقة هي الأساسية في حساب المتوقع والتذكير. وقت الدفع بتختار الباقة أو أي عدد حصص وبيحسب أرخص تركيبة.</small>`
+      <small style="color:var(--mut);display:block;margin-top:6px;line-height:1.7">مثال: 1 حصة = 120، 4 حصص = 440، 8 حصص = 800. أول باقة هي الأساسية في حساب المتوقع والتذكير. وقت الدفع بتختار الباقة أو أي عدد حصص وبيحسب أرخص تركيبة.</small>
+      <label>ميعاد دفع الباقة (بيحدد الشهر اللي بتتحسب فيه)</label>
+      <div class="seg"><button class="${OB.payAt!=='first'?'on':''}" onclick="obPayAt('last')">عند آخر حصة</button><button class="${OB.payAt==='first'?'on':''}" onclick="obPayAt('first')">عند أول حصة</button></div>
+      <small style="color:var(--mut);display:block;margin-top:6px;line-height:1.7">${OB.payAt==='first'?'الباقة بتتحسب في شهر أول حصة فيها (يعني بتدفع قبل ما تخلّص الحصص).':'الباقة بتتحسب في شهر آخر حصة فيها (يعني لو آخر حصة في الشهر الجاي، الالتزام بيظهر الشهر الجاي).'}</small>`
      :`<label>المبلغ كل مرة</label><input id="o_amount" type="number" step="any" inputmode="decimal" value="${OB.amount}">`}`
    :`<label>المبلغ</label><input id="o_amount" type="number" step="any" inputmode="decimal" value="${OB.amount}">
      <label>عدد المرات في الشهر</label><input id="o_times" type="number" value="${OB.isNew?'':(OB.times||1)}" placeholder="1">
@@ -411,7 +448,7 @@ function saveOb(){
   if(w&&!OB.wd.length)return toast('اختار يوم واحد على الأقل');
   if(w&&!OB.startDate)return toast('اختار تاريخ البداية');
   const sd=w?OB.startDate:'';
-  call('upsert','Obligations',{id:OB.id,name:OB.name,amount:a,times:w?1:(parseInt(OB.times)||1),day:w?1:(parseInt(OB.day)||1),kind:OB.kind,startDate:sd,startYm:sd?sd.slice(0,7):(OB.startYm||''),endYm:OB.endYm||'',active:'yes',weekdays:w?OB.wd.join(','):'',pkg:pk?ks[0].n:'',pkgPrice:pk?ks[0].p:'',pkgs:pk?ks.map(k=>k.n+':'+k.p).join(';'):''});
+  call('upsert','Obligations',{id:OB.id,name:OB.name,amount:a,times:w?1:(parseInt(OB.times)||1),day:w?1:(parseInt(OB.day)||1),kind:OB.kind,startDate:sd,startYm:sd?sd.slice(0,7):(OB.startYm||''),endYm:OB.endYm||'',active:'yes',weekdays:w?OB.wd.join(','):'',pkg:pk?ks[0].n:'',pkgPrice:pk?ks[0].p:'',pkgs:pk?ks.map(k=>k.n+':'+k.p).join(';'):'',payAt:pk?OB.payAt:''});
 }
 
 /* ---------- الالتزامات الأسبوعية: الأيام (Occurrences) ---------- */
@@ -460,7 +497,7 @@ function todayRows(c){
 function wkRows(c){
   return D.ob.filter(o=>o.active!=='no'&&o.weekdays).map(o=>{
     if(o.pkg>0){const s=c.sess.find(x=>x.ob.id===o.id),bl=s?s.blocks.filter(b=>b.month<=c.cm):[];if(!bl.length)return '';const late=bl.filter(b=>b.month<c.cm).length;
-      return `<div class="row" onclick="openCal('${o.id}')"><span class="l">${esc(o.name)}<small>${bl.length} باقة (${o.pkg} حصص) • آخر حصة ${fd(bl[bl.length-1].last)}${late?' • '+late+' متأخرة':''}</small></span><span class="v warn">${f(bl.length*o.pkgPrice)}</span></div>`}
+      return `<div class="row" onclick="openCal('${o.id}')"><span class="l">${esc(o.name)}<small>${bl.length} باقة (${o.pkg} حصص) • ميعاد الدفع ${fd(bl[bl.length-1].due)}${late?' • '+late+' متأخرة':''}</small></span><span class="v warn">${f(bl.length*o.pkgPrice)}</span></div>`}
     const r=c.occs.filter(i=>i.ob.id===o.id&&i.state==='due');if(!r.length)return '';
     const t=r.reduce((s,i)=>s+i.amount,0),nx=r.map(i=>i.date).sort()[0];
     return `<div class="row" onclick="openCal('${o.id}')"><span class="l">${esc(o.name)}<small>باقي ${r.length} مرة • أقرب يوم ${fd(nx)}</small></span><span class="v warn">${f(t)}</span></div>`}).join('');
@@ -468,7 +505,7 @@ function wkRows(c){
 function wkList(c){
   return D.ob.filter(o=>o.active!=='no'&&o.weekdays).map(o=>{
     if(o.pkg>0){const s=c.sess.find(x=>x.ob.id===o.id)||{held:[],blocks:[]},bl=s.blocks.filter(b=>b.month<=c.cm);
-      return `<div class="row" onclick="openCal('${o.id}')"><span class="l">${esc(o.name)} <span class="tag">باقة</span><small>📚 ${pkgList(o).map(k=>k.n+'='+f(k.p)).join(' • ')} • ${s.held.length} حصة مستحقة • ${bl.length} باقة على الشهر ده (دوس لفتح التقويم)</small></span><span class="v warn">${f(bl.length*o.pkgPrice)}</span></div>`}
+      return `<div class="row" onclick="openCal('${o.id}')"><span class="l">${esc(o.name)} <span class="tag">باقة</span><small>📚 ${pkgList(o).map(k=>k.n+'='+f(k.p)).join(' • ')} • ${s.held.length} حصة حصلت • ${bl.length} باقة على الشهر ده • دفع عند ${o.payAt==='first'?'أول':'آخر'} حصة</small></span><span class="v warn">${f(bl.length*o.pkgPrice)}</span></div>`}
     const it=c.occs.filter(i=>i.ob.id===o.id&&i.state!=='skip'),p=it.filter(i=>i.state==='paid').length,r=it.filter(i=>i.state==='due');
     return `<div class="row" onclick="openCal('${o.id}')"><span class="l">${esc(o.name)} <span class="tag">أسبوعي</span><small>📅 مدفوع ${p} • باقي ${r.length} (دوس لفتح التقويم)</small></span><span class="v warn">${f(r.reduce((s,i)=>s+i.amount,0))}</span></div>`}).join('');
 }
@@ -504,7 +541,7 @@ function askAccOpts(){const c=calc(),L=D.acc.map(a=>[a.id,a.name+' • '+f(c.bal
 function accHint(sa,sm,so){const id=val(sa),el=$('#'+so);if(!el)return;if(!id){el.innerHTML='';return}const b=calc().bal[id]||0,a=parseFloat(val(sm))||0;el.innerHTML='الرصيد المتاح: <b>'+f(b)+'</b>'+(a>b?' <span class="out">• أقل من المبلغ</span>':'')}
 const canPay=id=>!!(D.me&&D.me.role==='user'&&(D.me.obPay||[]).includes(id));
 function openOcc(key,fromCal){
-  RET=fromCal?drawCal:null;
+  RET=fromCal?drawCal:null;upTo(fromCal?drawCal:null);
   const it=getItem(key),ob=it.ob,accs=D.acc.map(a=>[a.id,a.name]),pk=ob.pkg>0;
   const st=it.state==='paid'?'<span class="tag in">اتدفع</span>':it.state==='skip'?'<span class="tag">ملغي</span>':it.moved?'<span class="tag">منقول</span>':'';
   if(RO())return sheet(`<h3>${esc(ob.name)} ${st}</h3><div style="color:var(--mut);font-size:13px">${fdl(it.orig)}${it.moved?' ← اتنقل لـ '+fdl(it.date):''}${it.extra?' • يوم إضافي':''}</div>
@@ -634,7 +671,7 @@ function stView(){
   const rg=[['month','الشهر ده'],['prev','الشهر اللي فات'],['all','الكل'],['custom','مخصص']];
   const cl=r=>d.all||!vs?(r.amt>0?'in':r.amt<0?'out':''):(r.amt>0?'out':'in');
   const row=r=>{const t=r.t;return `<div class="row"><span class="l">${esc(stDesc(t))}<small>${t.date} • ${esc(stCp(t))}${t.note?' • '+esc(t.note):''}</small>${r.note?`<small>${esc(r.note)}</small>`:''}</span><span class="v" style="text-align:left"><span class="${cl(r)}">${r.amt===0?f(t.amount):(r.amt>0?'+':'−')+f(Math.abs(r.amt))}</span><small style="display:block;color:var(--mut);font-weight:400">${f(r.bal)}</small></span></div>`};
-  return `<header><small class="noprint" onclick="tab='mr';render()" style="cursor:pointer">→ رجوع للمزيد</small>
+  return `<header><a class="bk noprint" onclick="goBack()">→ رجوع</a>
    <div class="big" style="font-size:24px">كشف حساب: ${esc(nm)}</div>
    <div class="sub"><span>${vs?'المديونية الحالية':d.all?'السيولة الحالية (كاش + بنك)':'الرصيد الحالي'}: ${f(d.cur)} ج</span></div></header><main>
    <div class="card noprint"><label style="margin-top:0">الحساب</label>
@@ -697,7 +734,7 @@ function mtView(){
   D.rd=D.rd||[];D.bl=D.bl||[];
   const m=MT.m,T=tar(m),L=rdsOf(m),last=L[L.length-1],rem=+((D.cfg||{})['remind_'+m])||0;
   const bl=L.map(r=>({r,b:D.bl.find(x=>x.id===r.id)})),wb=bl.filter(x=>x.b),k3=wb.slice(-3),avg=k3.reduce((s,x)=>s+x.b.units,0)/(k3.length||1),lb=wb[wb.length-1];
-  return `<header><small onclick="tab='mr';render()" style="cursor:pointer">→ رجوع للمزيد</small>
+  return `<header><a class="bk noprint" onclick="goBack()">→ رجوع</a>
    <div class="big" style="font-size:24px">${T.icon} العدادات والفواتير</div>
    <div class="sub"><span>${last?'آخر قراءة: '+fu(last.reading)+' ('+fd(last.date)+')':'مفيش قراءات لسه'}</span></div></header><main>
    <div class="seg" style="margin-bottom:12px">${MK.map(k=>`<button class="${m===k?'on':''}" onclick="MT.m='${k}';render()">${TAR[k].icon} ${TAR[k].name}</button>`).join('')}</div>
@@ -892,7 +929,7 @@ function rpHtml(M){
 }
 function rpView(){
   const M=RP.m||(RP.m=todayStr().slice(0,7)),[y,mo]=M.split('-').map(Number);
-  return `<header class="noprint"><small onclick="tab='mr';render()" style="cursor:pointer">→ رجوع للمزيد</small><div class="big" style="font-size:24px">التقرير الشهري</div><div class="sub"><span>ورقة A4 واحدة بكل حاجة عن الشهر</span></div></header><main>
+  return `<header class="noprint"><a class="bk noprint" onclick="goBack()">→ رجوع</a><div class="big" style="font-size:24px">التقرير الشهري</div><div class="sub"><span>ورقة A4 واحدة بكل حاجة عن الشهر</span></div></header><main>
    <div class="card noprint"><div class="calnav"><button onclick="rpGo(-1)">›</button><b>${MN[mo-1]} ${y}</b><button onclick="rpGo(1)">‹</button></div>
     <label>أو اختار الشهر</label><input type="month" value="${M}" onchange="RP.m=this.value||RP.m;render()"></div>
    <div class="noprint" style="display:flex;gap:8px"><button class="btn" style="margin-top:0" onclick="rpPdf()">⬇ حفظ / مشاركة PDF</button><button class="btn" style="margin-top:0;background:var(--ink)" onclick="window.print()">🖨 طباعة</button></div>
@@ -936,6 +973,7 @@ function forgotInfo(){
    <button class="btn" style="background:var(--ink)" onclick="lockScreen('login')">رجوع</button></div>`;
 }
 function openChangePw(){
+  if(shOpen)upTo(openSec);
   sheet(`<h3>🔑 تغيير الباسورد</h3>
    <label>الباسورد الحالي</label><input id="p_old" type="password" autocomplete="current-password" ${ent('p_new')}>
    <label>الباسورد الجديد (6 حروف+)</label><input id="p_new" type="password" autocomplete="new-password" ${ent('p_new2')}>
@@ -978,7 +1016,7 @@ function ufKeep(){
 }
 function userForm(){
   const accs=D.acc.filter(a=>a.kind!=='visa');
-  RET=openSec;
+  RET=openSec;upTo(openSec);
   sheet(`<h3>${UF.isNew?'مستخدم جديد':'تعديل: '+esc(UF.name)}</h3>
    ${UF.isNew?`<label>اسم المستخدم (حروف أو أرقام من غير مسافات)</label><input id="u_name" autocomplete="off" value="${esc(UF.name)}">`:''}
    <label>${UF.isNew?'الباسورد (6 حروف+)':'باسورد جديد (سيبه فاضي لو مش عايز تغيّره)'}</label><input id="u_pass" type="text" autocomplete="off">
@@ -1039,24 +1077,25 @@ function sessWin(ob){
 }
 /* الباقة = كتلة حصص بالتتابع (مش بتتقطع بآخر الشهر). الكتلة بتتحسب في شهر آخر حصة فيها */
 function pkgBlocks(ob){
-  const w=sessWin(ob),N=ob.pkg,td=todayStr(),blocks=[];
-  for(let i=0;i+N<=w.length;i+=N){const s=w.slice(i,i+N);blocks.push({items:s,first:s[0].date,last:s[N-1].date,month:ym(s[N-1].date),price:ob.pkgPrice,done:s[N-1].date<=td})}
-  return {blocks,partial:w.slice(Math.floor(w.length/N)*N),held:w.filter(i=>i.date<=td)};
+  const w=sessWin(ob),N=ob.pkg,td=todayStr(),first=ob.payAt==='first',blocks=[];
+  for(let i=0;i+N<=w.length;i+=N){const s=w.slice(i,i+N),due=first?s[0].date:s[N-1].date;blocks.push({items:s,first:s[0].date,last:s[N-1].date,due,month:ym(due),price:ob.pkgPrice,done:due<=td})}
+  const held=w.filter(i=>i.date<=td),hn=held.length;
+  return {blocks,partial:w.slice(Math.floor(w.length/N)*N),held,dueN:first?Math.ceil(hn/N):Math.floor(hn/N)};
 }
 function blockInfo(ob,it){
   const w=sessWin(ob),i=w.findIndex(x=>x.key===it.key),N=ob.pkg;
   if(i<0)return '<div class="row"><span class="l">حصة ضمن باقات الدروس</span></div>';
-  const bI=Math.floor(i/N),full=(bI+1)*N<=w.length,last=w[Math.min((bI+1)*N,w.length)-1];
-  return `<div class="row"><span class="l">حصة ${i%N+1} من ${N}<small>${full?'الباقة بتخلص '+fd(last.date)+' وبتتحسب في '+MN[+ym(last.date).slice(5)-1]:'الباقة دي لسه ماكملتش حصصها'} • الدفع وقت ما تحب</small></span></div>`;
+  const bI=Math.floor(i/N),full=(bI+1)*N<=w.length,fs=w[bI*N],ls=w[Math.min((bI+1)*N,w.length)-1],first=ob.payAt==='first',dd=first?fs:ls;
+  return `<div class="row"><span class="l">حصة ${i%N+1} من ${N}<small>${full||first?'ميعاد دفع الباقة: '+(first?'أول':'آخر')+' حصة ('+fd(dd.date)+') وبتتحسب في '+MN[+ym(dd.date).slice(5)-1]:'الباقة دي لسه ماكملتش حصصها'} • تقدر تدفع في أي وقت</small></span></div>`;
 }
 function sessRows(c,pf){
-  return (c.sess||[]).filter(s=>s.held.length>0&&(!pf||pf(s.ob))).map(s=>{const ob=s.ob,n=s.held.length,full=Math.floor(n/ob.pkg),cur=n%ob.pkg;
-    return `<div class="row"><span class="l" onclick="openCal('${ob.id}')">📚 ${esc(ob.name)}<small class="${full?'out':''}">${full?full+' باقة كملت ('+full*ob.pkg+' حصة)':''}${full&&cur?' + ':''}${cur?cur+' من '+ob.pkg+' في الباقة الجاية':''}</small></span><span class="v">${full?f(full*ob.pkgPrice)+' ':''}<button class="pay" onclick="openPkg('${ob.id}')">ادفع</button></span></div>`}).join('');
+  return (c.sess||[]).filter(s=>s.dueN>0&&(!pf||pf(s.ob))).map(s=>{const ob=s.ob;
+    return `<div class="row"><span class="l" onclick="openCal('${ob.id}')">📚 ${esc(ob.name)}<small class="out">${s.dueN} باقة مستحقة • ${s.held.length} حصة حصلت • الدفع عند ${ob.payAt==='first'?'أول':'آخر'} حصة</small></span><span class="v">${f(s.dueN*ob.pkgPrice)} <button class="pay" onclick="openPkg('${ob.id}')">ادفع</button></span></div>`}).join('');
 }
 function openPkg(id){
   const ob=D.ob.find(x=>x.id===id),td=todayStr(),held=sessWin(ob).filter(i=>i.date<=td).length,per=perOf(ob);
   PK={id,per,manual:false};
-  const k0=held>=ob.pkg?Math.floor(held/ob.pkg)*ob.pkg:ob.pkg,pl=pkgList(ob);
+  const dn=pkgBlocks(ob).dueN,k0=dn>0?dn*ob.pkg:ob.pkg,pl=pkgList(ob);
   sheet(`<h3>📚 ${esc(ob.name)} — دفع حصص</h3>
    <div class="row"><span class="l">حصص خدتها ومادفعتش عنها<small>الباقات: ${pkgList(ob).map(k=>k.n+' = '+f(k.p)).join(' • ')}</small></span><span class="v ${held>=ob.pkg?'out':''}">${held}</span></div>
    <label>عدد الحصص اللي هتدفع عنها</label>
@@ -1102,7 +1141,7 @@ function openCats(){
 }
 function openCat(i){const L=catsList();CT=i>=0?{i,n:L[i].n,s:[...L[i].s],isNew:false}:{i:-1,n:'',s:[],isNew:true};catForm()}
 function catForm(){
-  RET=openCats;
+  RET=openCats;upTo(openCats);
   sheet(`<h3>${CT.isNew?'بند جديد':'تعديل: '+esc(CT.n)}</h3>
    <label>اسم البند</label><input id="ct_n" value="${esc(CT.n)}" placeholder="مثلاً: بقالة">
    <label>البنود الفرعية (اختياري)</label>
@@ -1146,7 +1185,7 @@ function bdView(){
   const M=BM.m||(BM.m=todayStr().slice(0,7)),[y,mo]=M.split('-').map(Number),d=bdStat(M);
   const un=Object.keys(d.sp).filter(k=>!(d.B[k]>0)).sort((a,b)=>d.sp[b]-d.sp[a]);
   const tp=d.tl?d.tot/d.tl*100:0;
-  return `<header><small onclick="tab='mr';render()" style="cursor:pointer">→ رجوع للمزيد</small><div class="big" style="font-size:24px">🎯 الميزانية</div><div class="sub"><span>صرفت ${f(d.tot)} ج${d.tl?' من '+f(d.tl):''} في ${MN[mo-1]}</span></div></header><main>
+  return `<header><a class="bk noprint" onclick="goBack()">→ رجوع</a><div class="big" style="font-size:24px">🎯 الميزانية</div><div class="sub"><span>صرفت ${f(d.tot)} ج${d.tl?' من '+f(d.tl):''} في ${MN[mo-1]}</span></div></header><main>
    <div class="card"><div class="calnav"><button onclick="bdGo(-1)">›</button><b>${MN[mo-1]} ${y}</b><button onclick="bdGo(1)">‹</button></div></div>
    <div class="card"><h3>الشهر كله</h3>${d.tl?`<div class="row" style="display:block" onclick="editBudget('_total')"><div style="display:flex;justify-content:space-between"><b>إجمالي المصروفات</b><span class="v">${f(d.tot)} / ${f(d.tl)}</span></div><span class="bd-t"><span style="width:${Math.min(tp,100).toFixed(0)}%;background:${bdCol(tp)}"></span></span><small style="color:${bdCol(tp)}">${tp>=100?'تعدّيت بـ '+f(d.tot-d.tl):'باقي '+f(d.tl-d.tot)} • ${Math.round(tp)}%</small></div>`
     :`<button class="btn" style="margin:0;background:var(--ink)" onclick="editBudget('_total')">+ حدد ميزانية للشهر كله (اختياري)</button>`}</div>
@@ -1235,7 +1274,7 @@ function openQf(id){
 function qfKeep(){const g=id=>$('#'+id);if(g('qf_n'))QF.n=g('qf_n').value.trim();if(g('qf_a'))QF.a=g('qf_a').value;if(g('qf_c'))QF.c=g('qf_c').value;if(g('qf_s'))QF.s=g('qf_s').value;if(g('qf_acc'))QF.acc=g('qf_acc').value}
 function qfCat(){qfKeep();QF.s='';qfForm()}
 function qfForm(){
-  RET=openQuick;
+  RET=openQuick;upTo(openQuick);
   sheet(`<h3>${QF.isNew?'قالب جديد':'تعديل القالب'}</h3>
    <label>الاسم (اللي هيظهر على الزرار)</label><input id="qf_n" value="${esc(QF.n)}" placeholder="قهوة">
    <label>المبلغ (سيبه فاضي لو بيتغيّر، وهيسألك كل مرة)</label><input id="qf_a" type="number" step="any" inputmode="decimal" value="${QF.a||''}">
