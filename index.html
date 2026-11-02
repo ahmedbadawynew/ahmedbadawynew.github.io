@@ -168,6 +168,7 @@ function load(){
 const accName=id=>(D.acc.find(a=>a.id===id)||{name:'—'}).name;
 const kind=id=>(D.acc.find(a=>a.id===id)||{}).kind;
 
+const shM=(M,k)=>{let [y,m]=M.split('-').map(Number);m+=k;while(m<1){m+=12;y--}while(m>12){m-=12;y++}return y+'-'+pad(m)};
 function calc(){
   D.occ=D.occ||[];D.rd=D.rd||[];D.bl=D.bl||[];D.cfg=D.cfg||{};
   const cm=ym(todayStr()),day=+todayStr().slice(8);
@@ -190,9 +191,12 @@ function calc(){
     const paid=D.tx.some(t=>t.obId===o.id&&t.ym===cm);
     return {...o,total:o.amount*(o.times||1),paid,late:!paid&&o.day<day}});
   const occs=D.ob.filter(o=>o.active!=='no'&&o.weekdays).flatMap(o=>obMonth(o,cm));
+  const arr={monthly:[],weekly:[]},tdA=todayStr();
+  D.ob.filter(o=>o.active!=='no'&&!o.weekdays).forEach(o=>[3,2,1].forEach(k=>{const M=shM(cm,-k);if((o.startYm&&o.startYm>M)||(o.endYm&&o.endYm<M))return;if(!D.tx.some(t=>t.obId===o.id&&t.ym===M))arr.monthly.push({ob:o,M,amount:o.amount*(o.times||1)})}));
+  D.ob.filter(o=>o.active!=='no'&&o.weekdays&&!(o.pkg>0)).forEach(o=>[2,1].forEach(k=>obMonth(o,shM(cm,-k)).forEach(i=>{if(i.state==='due'&&i.date<=tdA)arr.weekly.push(i)})));
   const sess=D.ob.filter(o=>o.active!=='no'&&o.weekdays&&o.pkg>0).map(o=>{const pb=pkgBlocks(o);return {ob:o,held:pb.held,blocks:pb.blocks,partial:pb.partial,dueN:pb.dueN}});
-  const unpaid=obs.filter(o=>!o.paid).reduce((s,o)=>s+o.total,0)+occs.filter(i=>i.state==='due'&&!i.ob.pkg).reduce((s,i)=>s+i.amount,0)+sess.reduce((s,x)=>s+x.blocks.filter(b=>b.month<=cm).reduce((a,b)=>a+b.price,0),0);
-  return {bal,cash,bank,total,due,cur,vLimit,credit:vLimit-total,obs,occs,sess,unpaid,inc,exp,cm,day,
+  const unpaid=obs.filter(o=>!o.paid).reduce((s,o)=>s+o.total,0)+occs.filter(i=>i.state==='due'&&!i.ob.pkg).reduce((s,i)=>s+i.amount,0)+sess.reduce((s,x)=>s+x.blocks.filter(b=>b.month<=cm).reduce((a,b)=>a+b.price,0),0)+arr.monthly.reduce((s,x)=>s+x.amount,0)+arr.weekly.reduce((s,i)=>s+i.amount,0);
+  return {bal,cash,bank,total,due,cur,vLimit,credit:vLimit-total,obs,occs,sess,arr,unpaid,inc,exp,cm,day,
     free:cash+bank-due-unpaid,net:cash+bank-total-unpaid};
 }
 
@@ -208,14 +212,14 @@ function render(){
 
 function home(c){
   const lateDue=c.due>0&&c.day>27,hasVisa=D.acc.some(a=>a.kind==='visa'),cashAcc=D.acc.filter(a=>a.kind==='cash');
-  const need=todayRows(c)+sessRows(c)+meterRows(c)+budgetRows(c)+visaRow(c);
+  const need=arrRows(c)+todayRows(c)+sessRows(c)+meterRows(c)+budgetRows(c)+visaRow(c);
   const monthly=c.obs.filter(o=>!o.paid).map(o=>`<div class="row sub"><span class="l">${esc(o.name)}<small class="${o.late?'out':''}">يوم ${o.day}${o.late?' • عدّى ميعاده':''}</small></span><span class="v warn">${f(o.total)}</span></div>`).join('')+wkRows(c).replace(/class="row"/g,'class="row sub"');
   return `<header class="stk"><small>موقفي الصافي <span style="opacity:.8">(كاش + بنك − كل الفيزا − الالتزامات)</span></small>
    <div class="big" style="${c.net<0?'color:#ff9d80':''}">${f(c.net)} ج</div>
    <div class="sub"><span>المتاح للصرف: <b>${f(c.free)}</b></span><span>إيراد: ${f(c.inc)}</span><span>مصروف: ${f(c.exp)}</span></div></header>
   <main>
    ${quickRow()}
-   ${need?`<div class="card" style="border:2px solid var(--warn)"><h3>🔔 المطلوب دلوقتي</h3>${need}</div>`:''}
+   ${need?`<div class="card" style="border:2px solid var(--warn)"><h3>🔔 المطلوب دلوقتي (${(need.match(/class="row"/g)||[]).length})</h3>${need}</div>`:''}
    <div class="card"><h3>فلوسي</h3>
     <details class="dt"><summary><span>💵 كاش</span><b>${f(c.cash)}</b></summary>${cashAcc.map(a=>`<div class="row sub"><span class="l">${esc(a.name)}</span><span class="v" style="font-weight:400">${f(c.bal[a.id])}</span></div>`).join('')||'<div class="row sub"><span class="l">مفيش أماكن كاش</span></div>'}</details>
     <div class="row"><span class="l">🏦 البنك</span><span class="v">${f(c.bank)}</span></div>
@@ -338,6 +342,7 @@ function obView(c){
     <div class="calnav" style="margin:0 0 4px"><button onclick="obGo(-1)">›</button><b>${MN[mo-1]} ${y}</b><button onclick="obGo(1)">‹</button></div>
     ${rows?bar+rows+`<div class="row" style="margin-top:6px"><span class="l"><b>الإجمالي</b><small>مدفوع ${f(T.paid)} • باقي ${f(T.due)}</small></span><span class="v">${f(T.exp)}</span></div>`:'<div class="empty">مفيش التزامات في الشهر ده</div>'}
     ${kf?`<div style="text-align:center;margin-top:8px"><button class="pay" onclick="OM.k='';render()">عرض كل التصنيفات ✕ (${obIcon(kf)} ${esc(kf)})</button></div>`:''}</div>
+   ${arrRows(c)?`<div class="card" style="border:2px solid var(--warn)"><h3>⏳ متأخرات من شهور فاتت</h3>${arrRows(c)}</div>`:''}
    <div style="display:flex;gap:8px"><button class="btn" style="margin:0 0 4px;background:var(--ink)" onclick="openOb()">+ التزام جديد</button><button class="btn" style="margin:0 0 4px;background:#fff;color:var(--ink);border:1px solid var(--line)" onclick="openObCats()">🏷 التصنيفات</button></div>
    ${wk?`<h3 class="sec">أسبوعية (دروس، مواصلات…)</h3><div class="card">${wk}</div>`:''}
    ${mrow?`<h3 class="sec">شهرية</h3><div class="card">${mrow}</div>`:''}
@@ -452,10 +457,11 @@ function saveTx(){
 }
 function openDel(id){const t=D.tx.find(x=>x.id===id);sheet(`<h3>${TL[t.type]} — ${f(t.amount)} ج</h3><div style="color:var(--mut)">${t.date} • ${esc(t.category||'')} ${esc(t.note||'')}</div><button class="btn d" onclick="delTx('${id}')">حذف الحركة</button>`)}
 
-function payOb(id){openObPay(id)}
+let OPM='';
+function payOb(id,M){OPM=M||'';openObPay(id)}
 function openObPay(id){
   const o=D.ob.find(x=>x.id===id);if(!o)return;
-  sheet(`<h3>دفع ${esc(o.name)}</h3>
+  sheet(`<h3>دفع ${esc(o.name)}${OPM?' — شهر '+MN[+OPM.slice(5)-1]:''}</h3>
    <label>المبلغ</label><input id="op_amt" type="number" step="any" inputmode="decimal" value="${o.amount*(o.times||1)}" oninput="accHint('op_acc','op_amt','op_hint')">
    <label>الدفع من</label><select id="op_acc" onchange="accHint('op_acc','op_amt','op_hint')">${opts(askAccOpts(),'')}</select>
    <div id="op_hint" style="font-size:13px;color:var(--mut);margin-top:6px"></div>
@@ -464,7 +470,7 @@ function openObPay(id){
 function payObLite(id){
   const o=D.ob.find(x=>x.id===id),amt=parseFloat(val('op_amt')),acc=val('op_acc');
   if(!(amt>0))return toast('اكتب المبلغ');if(!acc)return toast('اختار الحساب اللي هتدفع منه');
-  RET=null;chain([['upsert','Tx',{id:attId('ob:'+id),date:todayStr(),type:'expense',amount:amt,account:acc,to:'',category:catOf(o),via:'',note:o.name,obId:o.id,ym:calc().cm}]]);
+  RET=null;chain([['upsert','Tx',{id:attId('ob:'+id),date:todayStr(),type:'expense',amount:amt,account:acc,to:'',category:catOf(o),via:'',note:o.name,obId:o.id,ym:OPM||calc().cm}]]);
 }
 const WD=[[6,'سبت'],[0,'أحد'],[1,'إثنين'],[2,'تلات'],[3,'أربع'],[4,'خميس'],[5,'جمعة']];
 const MN=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
@@ -561,9 +567,23 @@ function chain(steps,after){
 }
 
 /* ---------- كروت الرئيسية والقوائم ---------- */
+function arrRows(c){
+  const out=[];
+  [...c.arr.monthly].sort((a,b)=>a.M.localeCompare(b.M)).forEach(x=>out.push(`<div class="row"><span class="l" onclick="openOb('${x.ob.id}')">${esc(x.ob.name)}<small class="out">متأخر • شهر ${MN[+x.M.slice(5)-1]}</small></span><span class="v">${f(x.amount)} <button class="pay" onclick="payOb('${x.ob.id}','${x.M}')">دفع</button></span></div>`));
+  const by={};c.arr.weekly.forEach(i=>(by[i.ob.id]=by[i.ob.id]||[]).push(i));
+  Object.values(by).forEach(L=>{const o=L[0].ob,first=L.map(i=>i.date).sort()[0];
+    out.push(`<div class="row"><span class="l" onclick="openCal('${o.id}','${ym(first)}')">${esc(o.name)}<small class="out">متأخر • ${L.length} يوم من شهور فاتت (من ${fd(first)})</small></span><span class="v">${f(L.reduce((s,i)=>s+i.amount,0))} <button class="pay" onclick="openCal('${o.id}','${ym(first)}')">افتح</button></span></div>`)});
+  return out.join('');
+}
 function todayRows(c){
-  const td=todayStr(),l=c.occs.filter(i=>i.state==='due'&&i.date<=td&&!i.ob.pkg).sort((a,b)=>a.date.localeCompare(b.date));
-  return l.map(i=>`<div class="row"><span class="l" onclick="openOcc('${i.key}')">${esc(i.ob.name)}<small class="${i.date<td?'out':''}">${i.date===td?'النهارده':fdl(i.date)}${i.extra?' • إضافي':''}</small></span><span class="v">${f(i.amount)} <button class="pay" onclick="quickPay('${i.key}')">اتدفع</button></span></div>`).join('');
+  const td=todayStr(),out=[];
+  c.obs.filter(o=>!o.paid&&o.day<=c.day).sort((a,b)=>a.day-b.day).forEach(o=>out.push(`<div class="row"><span class="l" onclick="openOb('${o.id}')">${esc(o.name)}<small class="${o.day<c.day?'out':''}">${o.day===c.day?'النهارده':'متأخر • يوم '+o.day}</small></span><span class="v">${f(o.total)} <button class="pay" onclick="payOb('${o.id}')">دفع</button></span></div>`));
+  const by={};c.occs.filter(i=>i.state==='due'&&i.date<=td&&!i.ob.pkg).sort((a,b)=>a.date.localeCompare(b.date)).forEach(i=>(by[i.ob.id]=by[i.ob.id]||[]).push(i));
+  Object.values(by).forEach(L=>{
+    if(L.length<=2)L.forEach(i=>out.push(`<div class="row"><span class="l" onclick="openOcc('${i.key}')">${esc(i.ob.name)}<small class="${i.date<td?'out':''}">${i.date===td?'النهارده':fdl(i.date)}${i.extra?' • إضافي':''}</small></span><span class="v">${f(i.amount)} <button class="pay" onclick="quickPay('${i.key}')">اتدفع</button></span></div>`));
+    else out.push(`<div class="row"><span class="l" onclick="openCal('${L[0].ob.id}')">${esc(L[0].ob.name)}<small class="out">${L.length} يوم ماتدفعش (من ${fd(L[0].date)})</small></span><span class="v">${f(L.reduce((s,i)=>s+i.amount,0))} <button class="pay" onclick="openCal('${L[0].ob.id}')">افتح</button></span></div>`);
+  });
+  return out.join('');
 }
 function wkRows(c){
   return D.ob.filter(o=>o.active!=='no'&&o.weekdays).map(o=>{
