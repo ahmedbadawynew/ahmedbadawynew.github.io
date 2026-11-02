@@ -219,7 +219,7 @@ function home(c){
    <div class="sub"><span>المتاح للصرف: <b>${f(c.free)}</b></span><span>إيراد: ${f(c.inc)}</span><span>مصروف: ${f(c.exp)}</span></div></header>
   <main>
    ${quickRow()}
-   ${need?`<div class="card" style="border:2px solid var(--warn)"><h3>🔔 المطلوب دلوقتي (${(need.match(/class="row"/g)||[]).length})</h3>${need}</div>`:''}
+   ${need?`<details class="card dt" style="border:2px solid var(--warn)" ${prefOn('needOpen',false)?'open':''} ontoggle="setPref('needOpen',this.open)"><summary><span>🔔 المطلوب دلوقتي (${(need.match(/class="row"/g)||[]).length})</span><b class="${hasLate(c)?'out':'warn'}">${f(dueTotal(c))}</b></summary>${need}</details>`:''}
    <div class="card"><h3>فلوسي</h3>
     <details class="dt"><summary><span>💵 كاش</span><b>${f(c.cash)}</b></summary>${cashAcc.map(a=>`<div class="row sub"><span class="l">${esc(a.name)}</span><span class="v" style="font-weight:400">${f(c.bal[a.id])}</span></div>`).join('')||'<div class="row sub"><span class="l">مفيش أماكن كاش</span></div>'}</details>
     <div class="row"><span class="l">🏦 البنك</span><span class="v">${f(c.bank)}</span></div>
@@ -342,7 +342,7 @@ function obView(c){
     <div class="calnav" style="margin:0 0 4px"><button onclick="obGo(-1)">›</button><b>${MN[mo-1]} ${y}</b><button onclick="obGo(1)">‹</button></div>
     ${rows?bar+rows+`<div class="row" style="margin-top:6px"><span class="l"><b>الإجمالي</b><small>مدفوع ${f(T.paid)} • باقي ${f(T.due)}</small></span><span class="v">${f(T.exp)}</span></div>`:'<div class="empty">مفيش التزامات في الشهر ده</div>'}
     ${kf?`<div style="text-align:center;margin-top:8px"><button class="pay" onclick="OM.k='';render()">عرض كل التصنيفات ✕ (${obIcon(kf)} ${esc(kf)})</button></div>`:''}</div>
-   ${arrRows(c)?`<div class="card" style="border:2px solid var(--warn)"><h3>⏳ متأخرات من شهور فاتت</h3>${arrRows(c)}</div>`:''}
+   ${arrRows(c)?`<details class="card dt" style="border:2px solid var(--warn)" ${prefOn('arrOpen',true)?'open':''} ontoggle="setPref('arrOpen',this.open)"><summary><span>⏳ متأخرات من شهور فاتت</span><b class="out">${f(c.arr.monthly.reduce((s,x)=>s+x.amount,0)+c.arr.weekly.reduce((s,i)=>s+i.amount,0))}</b></summary>${arrRows(c)}</details>`:''}
    <div style="display:flex;gap:8px"><button class="btn" style="margin:0 0 4px;background:var(--ink)" onclick="openOb()">+ التزام جديد</button><button class="btn" style="margin:0 0 4px;background:#fff;color:var(--ink);border:1px solid var(--line)" onclick="openObCats()">🏷 التصنيفات</button></div>
    ${wk?`<h3 class="sec">أسبوعية (دروس، مواصلات…)</h3><div class="card">${wk}</div>`:''}
    ${mrow?`<h3 class="sec">شهرية</h3><div class="card">${mrow}</div>`:''}
@@ -567,6 +567,16 @@ function chain(steps,after){
 }
 
 /* ---------- كروت الرئيسية والقوائم ---------- */
+const prefOn=(k,def)=>{const v=ls.get('p_'+k);return v===null?def:v==='1'};
+const setPref=(k,v)=>ls.set('p_'+k,v?'1':'0');
+function dueTotal(c){
+  const td=todayStr();
+  return c.arr.monthly.reduce((s,x)=>s+x.amount,0)+c.arr.weekly.reduce((s,i)=>s+i.amount,0)
+   +c.obs.filter(o=>!o.paid&&o.day<=c.day).reduce((s,o)=>s+o.total,0)
+   +c.occs.filter(i=>i.state==='due'&&i.date<=td&&!i.ob.pkg).reduce((s,i)=>s+i.amount,0)
+   +(c.sess||[]).reduce((s,x)=>s+x.dueN*x.ob.pkgPrice,0);
+}
+function hasLate(c){const td=todayStr();return c.arr.monthly.length>0||c.arr.weekly.length>0||c.obs.some(o=>!o.paid&&o.day<c.day)||c.occs.some(i=>i.state==='due'&&i.date<td&&!i.ob.pkg)}
 function arrRows(c){
   const out=[];
   [...c.arr.monthly].sort((a,b)=>a.M.localeCompare(b.M)).forEach(x=>out.push(`<div class="row"><span class="l" onclick="openOb('${x.ob.id}')">${esc(x.ob.name)}<small class="out">متأخر • شهر ${MN[+x.M.slice(5)-1]}</small></span><span class="v">${f(x.amount)} <button class="pay" onclick="payOb('${x.ob.id}','${x.M}')">دفع</button></span></div>`));
